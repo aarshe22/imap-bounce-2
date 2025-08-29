@@ -1,0 +1,12 @@
+version: "3.8"
+services:
+  imap-bounce:
+    build: .
+    container_name: imap-bounce
+    ports:
+      - "${WEBUI_HTTPS_PORT}:${WEBUI_HTTPS_PORT}"
+    volumes:
+      - ./data:/data
+    env_file:
+      - ./data/.env
+    restart: unless-stopped
