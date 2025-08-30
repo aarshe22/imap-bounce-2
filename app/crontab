@@ -1,0 +1,8 @@
+# Run bounce processor every 5 minutes
+*/5 * * * * python /app/process_bounces.py
+
+# Run retry queue every 15 minutes
+*/15 * * * * python /app/retry_queue.py
+
+# Run daily summary at midnight UTC
+0 0 * * * python /app/daily_summary.py
