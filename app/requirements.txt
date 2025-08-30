@@ -4,3 +4,4 @@ python-dotenv
 mail-parser
 openpyxl
 python-multipart
+pandas
