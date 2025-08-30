@@ -32,6 +32,7 @@ COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 # Set permissions
 RUN chown -R appuser:appuser /app
+RUN mkdir -p /var/run && chown appuser:appuser /var/run
 
 USER appuser
 
