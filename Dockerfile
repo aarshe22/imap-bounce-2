@@ -1,6 +1,5 @@
 FROM python:3.12-slim
 
-# Set environment
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/home/appuser/.local/bin:$PATH"
@@ -18,28 +17,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create app user
 RUN useradd -ms /bin/bash appuser
 
-# Set workdir
+# Prepare directories for cron + logs
+RUN mkdir -p /data /var/spool/cron/crontabs && \
+    chown -R appuser:appuser /data /var/spool/cron
+
 WORKDIR /app
 
-# Copy requirements
 COPY app/requirements.txt /app/requirements.txt
+RUN pip install --upgrade pip && pip install --no-cache-dir -r /app/requirements.txt
 
-# Install Python deps
-RUN pip install --no-cache-dir -r /app/requirements.txt
-
-# Copy app source and config
 COPY app/ /app/
 COPY data/.env.example /data/.env.example
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# Make data dir writable
-RUN mkdir -p /data && chown -R appuser:appuser /data
+# Set permissions
+RUN chown -R appuser:appuser /app
 
-# Switch to non-root user
 USER appuser
 
-# Expose web UI port
 EXPOSE 8888
-
-# Run supervisord (manages cron + uvicorn)
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
