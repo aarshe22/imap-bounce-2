@@ -52,8 +52,8 @@ A production-ready Dockerized application that:
 ### 1. Clone & configure
 
 ```bash
-git clone https://github.com/aarshe22/imap-bounce-app.git
-cd imap-bounce-app
+git clone https://github.com/aarshe22/imap-bounce-2.git
+cd imap-bounce-2
 cp data/.env.example data/.env
 ```
 
