@@ -9,6 +9,8 @@ ENV PYTHONUNBUFFERED=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libmagic1 \
+    libmagic-dev \
+    gcc \
     cron \
     supervisor \
     && rm -rf /var/lib/apt/lists/*
