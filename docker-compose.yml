@@ -1,6 +1,6 @@
 services:
   imap-bounce:
-    image: ghcr.io/aarshe22/imap-bounce-2:main
+    image: ghcr.io/aarshe22/imap-bounce-app:main
     container_name: imap-bounce
     restart: unless-stopped
     ports:
