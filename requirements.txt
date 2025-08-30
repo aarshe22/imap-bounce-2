@@ -1,4 +1,0 @@
-mail-parser
-python-dotenv
-fastapi
-uvicorn[standard]

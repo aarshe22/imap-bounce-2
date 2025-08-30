@@ -1,4 +1,6 @@
-mail-parser
-python-dotenv
 fastapi
 uvicorn[standard]
+python-dotenv
+mailparser
+openpyxl
+python-multipart
