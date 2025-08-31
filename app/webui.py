@@ -2,7 +2,7 @@
 import os, sqlite3, pandas as pd
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
-from fastapi.middleware.sessions import SessionMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from dotenv import load_dotenv
 from io import BytesIO, StringIO
 from db import fetch_bounces, count_bounces
