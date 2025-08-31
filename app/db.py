@@ -38,11 +38,51 @@ def update_status(bounce_id, status):
     con.commit()
     con.close()
 
-def fetch_bounces(limit=100):
+def fetch_bounces(limit=100, offset=0, filters=None):
+    query = "SELECT * FROM bounces WHERE 1=1"
+    params = []
+    if filters:
+        if filters.get("date_from"):
+            query += " AND date >= ?"
+            params.append(filters["date_from"])
+        if filters.get("date_to"):
+            query += " AND date <= ?"
+            params.append(filters["date_to"])
+        if filters.get("status"):
+            query += " AND status = ?"
+            params.append(filters["status"])
+        if filters.get("domain"):
+            query += " AND domain LIKE ?"
+            params.append(f"%{filters['domain']}%")
+    query += " ORDER BY date DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     cur = con.cursor()
-    cur.execute("SELECT * FROM bounces ORDER BY date DESC LIMIT ?", (limit,))
+    cur.execute(query, tuple(params))
     rows = cur.fetchall()
     con.close()
     return [dict(ix) for ix in rows]
+
+def count_bounces(filters=None):
+    query = "SELECT COUNT(*) FROM bounces WHERE 1=1"
+    params = []
+    if filters:
+        if filters.get("date_from"):
+            query += " AND date >= ?"
+            params.append(filters["date_from"])
+        if filters.get("date_to"):
+            query += " AND date <= ?"
+            params.append(filters["date_to"])
+        if filters.get("status"):
+            query += " AND status = ?"
+            params.append(filters["status"])
+        if filters.get("domain"):
+            query += " AND domain LIKE ?"
+            params.append(f"%{filters['domain']}%")
+    con = sqlite3.connect(DB_PATH)
+    cur = con.cursor()
+    cur.execute(query, tuple(params))
+    total = cur.fetchone()[0]
+    con.close()
+    return total
