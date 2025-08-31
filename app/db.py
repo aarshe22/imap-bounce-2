@@ -10,7 +10,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS bounces (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT,
-            email TEXT,
+            email_to TEXT,
+            email_cc TEXT,
             status TEXT,
             reason TEXT,
             domain TEXT,
@@ -20,12 +21,12 @@ def init_db():
     con.commit()
     con.close()
 
-def log_bounce(date, email, status, reason, domain):
+def log_bounce(date, email_to, email_cc, status, reason, domain):
     con = sqlite3.connect(DB_PATH)
     cur = con.cursor()
     cur.execute(
-        "INSERT INTO bounces (date, email, status, reason, domain) VALUES (?,?,?,?,?)",
-        (date, email, status, reason, domain)
+        "INSERT INTO bounces (date, email_to, email_cc, status, reason, domain) VALUES (?,?,?,?,?,?)",
+        (date, email_to, email_cc, status, reason, domain)
     )
     con.commit()
     con.close()

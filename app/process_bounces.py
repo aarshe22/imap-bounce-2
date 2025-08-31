@@ -8,18 +8,10 @@ from bounce_rules import classify_bounce
 
 load_dotenv()
 IMAP_SERVER = os.getenv("IMAP_SERVER")
-IMAP_PORT   = int(os.getenv("IMAP_PORT", "993"))
-IMAP_SECURE = os.getenv("IMAP_SECURE", "ssl").lower()
-
-if IMAP_SECURE == "ssl":
-    mail = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
-elif IMAP_SECURE == "starttls":
-    mail = imaplib.IMAP4(IMAP_SERVER, IMAP_PORT)
-    mail.starttls()
-else:
-    mail = imaplib.IMAP4(IMAP_SERVER, IMAP_PORT)
 IMAP_USER   = os.getenv("IMAP_USER")
 IMAP_PASS   = os.getenv("IMAP_PASS")
+IMAP_PORT   = int(os.getenv("IMAP_PORT", "993"))
+IMAP_SECURE = os.getenv("IMAP_SECURE", "ssl").lower()
 TEST_MODE   = os.getenv("IMAP_TEST_MODE","false").lower() == "true"
 
 # Folders
@@ -28,9 +20,19 @@ PROCESSED  = os.getenv("IMAP_FOLDER_TESTPROCESSED" if TEST_MODE else "IMAP_FOLDE
 PROBLEM    = os.getenv("IMAP_FOLDER_TESTPROBLEM" if TEST_MODE else "IMAP_FOLDER_PROBLEM")
 SKIPPED    = os.getenv("IMAP_FOLDER_TESTSKIPPED" if TEST_MODE else "IMAP_FOLDER_SKIPPED")
 
+def connect_imap():
+    if IMAP_SECURE == "ssl":
+        return imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
+    elif IMAP_SECURE == "starttls":
+        conn = imaplib.IMAP4(IMAP_SERVER, IMAP_PORT)
+        conn.starttls()
+        return conn
+    else:
+        return imaplib.IMAP4(IMAP_SERVER, IMAP_PORT)
+
 def process():
     init_db()
-    mail = imaplib.IMAP4_SSL(IMAP_SERVER)
+    mail = connect_imap()
     mail.login(IMAP_USER, IMAP_PASS)
     mail.select(INBOX)
 
@@ -39,30 +41,44 @@ def process():
         typ, msg_data = mail.fetch(num, "(RFC822)")
         msg = email.message_from_bytes(msg_data[0][1])
 
+        # Decode subject
         subject, enc = decode_header(msg.get("Subject",""))[0]
         if isinstance(subject, bytes):
             subject = subject.decode(enc or "utf-8", errors="ignore")
 
+        # Extract plain body
         body = ""
         if msg.is_multipart():
             for part in msg.walk():
                 if part.get_content_type() == "text/plain":
-                    body = part.get_payload(decode=True).decode(errors="ignore")
+                    try:
+                        body = part.get_payload(decode=True).decode(errors="ignore")
+                    except Exception:
+                        body = ""
                     break
         else:
-            body = msg.get_payload(decode=True).decode(errors="ignore")
+            try:
+                body = msg.get_payload(decode=True).decode(errors="ignore")
+            except Exception:
+                body = ""
+
+        # Extract top-level To and CC headers
+        to_addr = msg.get_all("To", []) or []
+        cc_addr = msg.get_all("Cc", []) or []
+        to_str = ", ".join(to_addr)
+        cc_str = ", ".join(cc_addr)
 
         reason = classify_bounce(subject + " " + body)
         date = datetime.utcnow().isoformat()
-        to_addr = msg.get("To","unknown")
-        domain = to_addr.split("@")[-1] if "@" in to_addr else "unknown"
+        domain = to_str.split("@")[-1] if "@" in to_str else "unknown"
 
         if "Unknown" not in reason:
-            log_bounce(date, to_addr, "Processed", reason, domain)
+            log_bounce(date, to_str, cc_str, "Processed", reason, domain)
             mail.copy(num, PROCESSED)
         else:
-            log_bounce(date, to_addr, "Skipped", reason, domain)
+            log_bounce(date, to_str, cc_str, "Skipped", reason, domain)
             mail.copy(num, SKIPPED)
+
         mail.store(num, "+FLAGS", "\\\\Deleted")
 
     mail.expunge()
