@@ -8,6 +8,16 @@ from bounce_rules import classify_bounce
 
 load_dotenv()
 IMAP_SERVER = os.getenv("IMAP_SERVER")
+IMAP_PORT   = int(os.getenv("IMAP_PORT", "993"))
+IMAP_SECURE = os.getenv("IMAP_SECURE", "ssl").lower()
+
+if IMAP_SECURE == "ssl":
+    mail = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
+elif IMAP_SECURE == "starttls":
+    mail = imaplib.IMAP4(IMAP_SERVER, IMAP_PORT)
+    mail.starttls()
+else:
+    mail = imaplib.IMAP4(IMAP_SERVER, IMAP_PORT)
 IMAP_USER   = os.getenv("IMAP_USER")
 IMAP_PASS   = os.getenv("IMAP_PASS")
 TEST_MODE   = os.getenv("IMAP_TEST_MODE","false").lower() == "true"
