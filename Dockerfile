@@ -1,37 +1,41 @@
+# Use official Python slim image
 FROM python:3.12-slim
 
-# Install required system packages
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc g++ make \
-    libpq-dev \
-    curl ca-certificates \
+# Create appuser
+RUN useradd -ms /bin/bash appuser
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    supervisor \
+    sqlite3 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install supercronic for cron-like scheduling
-ENV SUPERCRONIC_URL=https://github.com/aptible/supercronic/releases/download/v0.2.30/supercronic-linux-amd64
-RUN curl -fsSL "$SUPERCRONIC_URL" -o /usr/local/bin/supercronic \
+# Install supercronic (lightweight cron for containers)
+RUN curl -fsSLo /usr/local/bin/supercronic https://github.com/aptible/supercronic/releases/download/v0.2.29/supercronic-linux-amd64 \
     && chmod +x /usr/local/bin/supercronic
 
-# Set up app directory
+# Create working dirs
+RUN mkdir -p /app /data /logs
+
 WORKDIR /app
 
-# Copy dependency files
-COPY requirements.txt /app/
-
-# Install Python dependencies
+# Copy requirements first for caching
+COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy application source
-COPY . /app/
+# Copy app source (flatten contents of app/ into /app/)
+COPY app/ /app/
+COPY crontab /app/crontab
+COPY supervisord.conf /app/supervisord.conf
+COPY docker-compose.yml /app/docker-compose.yml
+COPY Makefile /app/Makefile
+COPY README.md /app/README.md
+COPY docs/ /app/docs/
 
-# Create non-root user
-RUN useradd -m appuser && mkdir -p /data && chown -R appuser:appuser /app /data
+# Ensure permissions
+RUN chown -R appuser:appuser /app /data /logs
+
 USER appuser
 
-# Expose the web dashboard port
-EXPOSE 8888
-
-# Command: run supercronic + uvicorn together
-# supercronic runs cron schedule defined in /app/crontab
-# uvicorn runs the FastAPI web dashboard
-CMD ["/bin/sh", "-c", "supercronic /app/crontab & uvicorn webui:app --host 0.0.0.0 --port 8888"]
+CMD ["supervisord", "-c", "/app/supervisord.conf"]

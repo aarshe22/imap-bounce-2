@@ -8,5 +8,10 @@ services:
     volumes:
       - ./data:/data
     ports:
-      - "${WEBUI_PORT}:8888"
-    user: "1000:1000"   # ensures container writes logs/db with correct ownership
+      - "${WEBUI_PORT:-8888}:8888"
+    user: "1000:1000"   # ensures logs/db have correct ownership
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/login"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
