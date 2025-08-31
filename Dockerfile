@@ -1,42 +1,37 @@
 FROM python:3.12-slim
 
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PATH="/home/appuser/.local/bin:$PATH"
-
-# Install system dependencies
+# Install required system packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libmagic1 \
-    libmagic-dev \
-    gcc \
-    supervisor \
-    curl \
+    gcc g++ make \
+    libpq-dev \
+    curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install supercronic
-ADD https://github.com/aptible/supercronic/releases/download/v0.2.2/supercronic-linux-amd64 /usr/local/bin/supercronic
-RUN chmod +x /usr/local/bin/supercronic
+# Install supercronic for cron-like scheduling
+ENV SUPERCRONIC_URL=https://github.com/aptible/supercronic/releases/download/v0.2.30/supercronic-linux-amd64
+RUN curl -fsSL "$SUPERCRONIC_URL" -o /usr/local/bin/supercronic \
+    && chmod +x /usr/local/bin/supercronic
 
-# Create app user
-RUN useradd -ms /bin/bash appuser
-
+# Set up app directory
 WORKDIR /app
 
-# Copy requirements first for caching
-COPY app/requirements.txt /app/requirements.txt
-RUN pip install --upgrade pip && pip install --no-cache-dir -r /app/requirements.txt
+# Copy dependency files
+COPY requirements.txt /app/
 
-# Copy source code + config
-COPY app/ /app/
-COPY data/.env.example /data/.env.example
-COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-COPY crontab /app/crontab
+# Install Python dependencies
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Fix permissions
-RUN chown -R appuser:appuser /app /data
+# Copy application source
+COPY . /app/
 
+# Create non-root user
+RUN useradd -m appuser && mkdir -p /data && chown -R appuser:appuser /app /data
 USER appuser
 
+# Expose the web dashboard port
 EXPOSE 8888
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+
+# Command: run supercronic + uvicorn together
+# supercronic runs cron schedule defined in /app/crontab
+# uvicorn runs the FastAPI web dashboard
+CMD ["/bin/sh", "-c", "supercronic /app/crontab & uvicorn webui:app --host 0.0.0.0 --port 8888"]

@@ -48,6 +48,7 @@ def dashboard(request: Request):
     flash = get_flash(request) or ""
     flash_html = f'<div class="alert alert-info">{flash}</div>' if flash else ""
 
+    # Build page with flash injected separately
     html = f"""
     <html><head>
     <title>IMAP Bounce Dashboard</title>
@@ -59,7 +60,10 @@ def dashboard(request: Request):
     {flash_html}
     <h1>📬 Bounce Dashboard</h1>
     <a href="/logout" class="btn btn-danger btn-sm float-end">Logout</a>
+    """
 
+    # Append static HTML/JS that uses { } freely
+    html += """
     <!-- Filters -->
     <div class="row mb-3">
       <div class="col-md-3">
@@ -113,74 +117,73 @@ def dashboard(request: Request):
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
     <script>
-      $(document).ready(function() {{
-        var table = $('#bounces').DataTable({{
+      $(document).ready(function() {
+        var table = $('#bounces').DataTable({
           serverSide: true,
           processing: true,
-          ajax: {{
+          ajax: {
             url: '/api/logs',
             type: 'GET',
-            data: function(d) {{
-              // pass filter values to backend
+            data: function(d) {
               d.date_from = $('#dateFrom').val();
               d.date_to   = $('#dateTo').val();
               d.status    = $('#statusFilter').val();
               d.domain    = $('#domainFilter').val();
-            }},
+            },
             dataSrc: 'data'
-          }},
+          },
           columns: [
-            {{ data: 'id' }},
-            {{ data: 'date' }},
-            {{ data: 'email_to' }},
-            {{ data: 'email_cc' }},
-            {{ data: 'status' }},
-            {{ data: 'reason' }},
-            {{ data: 'domain' }},
-            {{ data: 'id', render: function(d){{
+            { data: 'id' },
+            { data: 'date' },
+            { data: 'email_to' },
+            { data: 'email_cc' },
+            { data: 'status' },
+            { data: 'reason' },
+            { data: 'domain' },
+            { data: 'id', render: function(d){
                 return '<a href="/api/retry/'+d+'" class="btn btn-sm btn-primary">Retry</a>';
-              }}
-            }}
+              }
+            }
           ],
           pageLength: 25,
           lengthMenu: [10, 25, 50, 100]
-        }});
+        });
 
-        // 🔄 Reload table when filters change
-        $('#dateFrom,#dateTo,#statusFilter,#domainFilter').on('change keyup', function() {{
+        // Reload when filters change
+        $('#dateFrom,#dateTo,#statusFilter,#domainFilter').on('change keyup', function() {
           table.ajax.reload();
-        }});
+        });
 
         // Export buttons
-        $('#exportCsv').click(function(e){{
+        $('#exportCsv').click(function(e){
           e.preventDefault();
-          var params = $.param({{
+          var params = $.param({
             date_from: $('#dateFrom').val(),
             date_to: $('#dateTo').val(),
             status: $('#statusFilter').val(),
             domain: $('#domainFilter').val()
-          }});
+          });
           window.location = '/export/csv?' + params;
-        }});
-        $('#exportExcel').click(function(e){{
+        });
+        $('#exportExcel').click(function(e){
           e.preventDefault();
-          var params = $.param({{
+          var params = $.param({
             date_from: $('#dateFrom').val(),
             date_to: $('#dateTo').val(),
             status: $('#statusFilter').val(),
             domain: $('#domainFilter').val()
-          }});
+          });
           window.location = '/export/excel?' + params;
-        }});
+        });
 
         // Chart
         fetch('/api/domain_stats').then(r=>r.json()).then(data=>{
-          new Chart(document.getElementById('domainChart'),{{
+          new Chart(document.getElementById('domainChart'),{
             type:'pie',
-            data:{{labels:data.labels,datasets:[{{data:data.counts,backgroundColor:['#007bff','#dc3545','#28a745','#ffc107','#17a2b8']}}]}}
-          }});
-        }});
-      }});
+            data:{labels:data.labels,datasets:[{data:data.counts,backgroundColor:['#007bff','#dc3545','#28a745','#ffc107','#17a2b8']}]}
+          });
+        });
+      });
     </script>
     </body></html>
     """
@@ -267,7 +270,7 @@ def api_retry(request: Request, bounce_id: int):
     return RedirectResponse("/", status_code=302)
 
 # ---------------------------
-# Exports (respect filters)
+# Exports
 # ---------------------------
 @app.get("/export/csv")
 def export_csv(request: Request,

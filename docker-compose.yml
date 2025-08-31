@@ -3,9 +3,10 @@ services:
     image: ghcr.io/aarshe22/imap-bounce-app:main
     container_name: imap-bounce
     restart: unless-stopped
-    ports:
-      - "8888:8888"
-    volumes:
-      - ./data:/data
     env_file:
       - ./data/.env
+    volumes:
+      - ./data:/data
+    ports:
+      - "${WEBUI_PORT}:8888"
+    user: "1000:1000"   # ensures container writes logs/db with correct ownership

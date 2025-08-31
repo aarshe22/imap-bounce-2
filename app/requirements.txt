@@ -1,7 +1,6 @@
 fastapi
 uvicorn[standard]
 python-dotenv
-mail-parser
-openpyxl
-python-multipart
 pandas
+openpyxl
+mail-parser

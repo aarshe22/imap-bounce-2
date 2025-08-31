@@ -1,51 +1,69 @@
 # retry_queue.py
 import sqlite3, smtplib, os
-from db import DB_PATH
+from email.message import EmailMessage
+from dotenv import load_dotenv
+from db import update_status, init_db
 
-SMTP_SERVER = os.getenv("SMTP_SERVER")
-SMTP_PORT   = int(os.getenv("SMTP_PORT","587"))
-SMTP_USER   = os.getenv("SMTP_USER")
-SMTP_PASS   = os.getenv("SMTP_PASS")
+load_dotenv()
+DB_PATH = "/data/bounces.db"
 
-NOTIFY_CC      = os.getenv("NOTIFY_CC", "")
-NOTIFY_CC_TEST = os.getenv("NOTIFY_CC_TEST", "")
-TEST_MODE      = os.getenv("IMAP_TEST_MODE", "false").lower() == "true"
+SMTP_SERVER = os.getenv("SMTP_SERVER", "localhost")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "25"))
 
-def get_notification_recipients(cc_str: str) -> list[str]:
-    """Build recipient list for notifications."""
-    if TEST_MODE:
-        return [addr.strip() for addr in NOTIFY_CC_TEST.split(",") if addr.strip()]
-    else:
-        env_cc = [addr.strip() for addr in NOTIFY_CC.split(",") if addr.strip()]
-        cc_list = [addr.strip() for addr in cc_str.split(",") if addr.strip()]
-        return list(set(env_cc + cc_list))  # dedupe
+NOTIFY_CC = [x.strip() for x in os.getenv("NOTIFY_CC", "").split(",") if x.strip()]
+NOTIFY_CC_TEST = [x.strip() for x in os.getenv("NOTIFY_CC_TEST", "").split(",") if x.strip()]
+IMAP_TEST_MODE = os.getenv("IMAP_TEST_MODE", "false").lower() == "true"
 
-def retry():
+init_db()
+
+def retry_bounces():
+    """Retry sending notifications for bounces marked as retry_queued."""
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     cur = con.cursor()
-    cur.execute("SELECT * FROM bounces WHERE status='retry_queued' AND retries < 3")
+    cur.execute("SELECT * FROM bounces WHERE status='retry_queued'")
     rows = cur.fetchall()
 
     for row in rows:
-        recipients = get_notification_recipients(row["email_cc"])
-        if not recipients:
-            continue
         try:
-            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-                server.starttls()
-                server.login(SMTP_USER, SMTP_PASS)
-                msg = f"Subject: Bounce Notification\n\n" \
-                      f"Original To: {row['email_to']}\n" \
-                      f"CC: {row['email_cc']}\n" \
-                      f"Reason: {row['reason']}\n"
-                server.sendmail(SMTP_USER, recipients, msg)
-            cur.execute("UPDATE bounces SET status='Processed', retries=retries+1 WHERE id=?", (row["id"],))
-        except Exception:
-            cur.execute("UPDATE bounces SET retries=retries+1 WHERE id=?", (row["id"],))
+            # Decide recipients
+            if IMAP_TEST_MODE:
+                notify_recipients = NOTIFY_CC_TEST
+            else:
+                cc_list = row["email_cc"].split(",") if row["email_cc"] else []
+                notify_recipients = NOTIFY_CC + cc_list
 
-    con.commit()
+            if not notify_recipients:
+                print(f"No recipients for bounce ID {row['id']} — skipping.")
+                update_status(row["id"], "Problem")
+                continue
+
+            # Build message
+            msg = EmailMessage()
+            msg["Subject"] = f"Retry Bounce Notification: {row['email_to']}"
+            msg["From"] = "bounce-processor@localhost"
+            msg["To"] = ", ".join(notify_recipients)
+
+            cc_display = row["email_cc"] if row["email_cc"] else "None"
+            msg.set_content(f"""
+Bounce retry notification.
+
+Original To: {row['email_to']}
+Original Cc: {cc_display}
+Reason: {row['reason']}
+""")
+
+            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as s:
+                s.send_message(msg)
+
+            update_status(row["id"], "Processed")
+            print(f"Retried bounce ID {row['id']} -> success")
+
+        except Exception as e:
+            print(f"Retry failed for bounce ID {row['id']}: {e}")
+            update_status(row["id"], "Problem")
+
     con.close()
 
 if __name__ == "__main__":
-    retry()
+    retry_bounces()
