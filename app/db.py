@@ -1,35 +1,22 @@
 # db.py
-"""
-Database layer for IMAP Bounce App.
-
-Provides SQLite3 persistence for:
-  - Bounces log (email, cc, status, reason, domain, date)
-  - Bounce patterns (regex → reason)
-  
-Tables are created automatically on import.
-"""
-
-import os
 import sqlite3
+import os
 
-DB_PATH = os.environ.get("DB_PATH", "/data/bounces.db")
+DB_PATH = os.getenv("DB_PATH", "/data/bounces.db")
 
 
 def get_connection():
-    """Open a SQLite connection with row_factory as dict."""
+    """Return a SQLite connection with row access by name."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
 
-def create_tables():
-    """Ensure required tables exist."""
+def init_db():
+    """Initialize database schema if not already created."""
     conn = get_connection()
     cur = conn.cursor()
-
-    # Bounces log
-    cur.execute(
-        """
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS bounces (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT NOT NULL,
@@ -39,113 +26,96 @@ def create_tables():
             reason TEXT,
             domain TEXT
         )
-        """
-    )
-
-    # Bounce patterns
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS patterns (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            pattern TEXT NOT NULL,
-            reason TEXT NOT NULL
-        )
-        """
-    )
-
+    """)
     conn.commit()
     conn.close()
 
 
-def insert_bounce(date, email_to, email_cc, status, reason, domain):
-    """Insert a new bounce row."""
+def log_bounce(date, email_to, email_cc, status, reason, domain):
+    """Insert a bounce log entry into the database."""
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO bounces (date, email_to, email_cc, status, reason, domain) VALUES (?, ?, ?, ?, ?, ?)",
-        (date, email_to, email_cc, status, reason, domain),
-    )
+    cur.execute("""
+        INSERT INTO bounces (date, email_to, email_cc, status, reason, domain)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (date, email_to, email_cc, status, reason, domain))
     conn.commit()
     conn.close()
 
 
-def query_bounces(filters=None, limit=25, offset=0, order_by="id ASC"):
-    """Fetch bounces with optional filters (for DataTables)."""
+def fetch_bounces(filters=None, start=0, length=25):
+    """
+    Fetch bounce records with optional filters and pagination.
+    Filters: dict with keys 'date_from', 'date_to', 'status', 'domain'
+    """
+    filters = filters or {}
     conn = get_connection()
     cur = conn.cursor()
 
     query = "SELECT * FROM bounces WHERE 1=1"
     params = []
 
-    if filters:
-        if "date_from" in filters and filters["date_from"]:
-            query += " AND date >= ?"
-            params.append(filters["date_from"])
-        if "date_to" in filters and filters["date_to"]:
-            query += " AND date <= ?"
-            params.append(filters["date_to"])
-        if "status" in filters and filters["status"]:
-            query += " AND status = ?"
-            params.append(filters["status"])
-        if "domain" in filters and filters["domain"]:
-            query += " AND domain = ?"
-            params.append(filters["domain"])
+    if filters.get("date_from"):
+        query += " AND date >= ?"
+        params.append(filters["date_from"])
+    if filters.get("date_to"):
+        query += " AND date <= ?"
+        params.append(filters["date_to"])
+    if filters.get("status"):
+        query += " AND status = ?"
+        params.append(filters["status"])
+    if filters.get("domain"):
+        query += " AND domain = ?"
+        params.append(filters["domain"])
 
-    query += f" ORDER BY {order_by} LIMIT ? OFFSET ?"
-    params.extend([limit, offset])
+    query += " ORDER BY id DESC LIMIT ? OFFSET ?"
+    params.extend([length, start])
 
     cur.execute(query, tuple(params))
-    rows = cur.fetchall()
+    rows = [dict(row) for row in cur.fetchall()]
     conn.close()
-    return [dict(r) for r in rows]
+    return rows
 
 
 def count_bounces(filters=None):
-    """Count bounces for pagination."""
+    """Count bounce records with optional filters (used for DataTables)."""
+    filters = filters or {}
     conn = get_connection()
     cur = conn.cursor()
 
-    query = "SELECT COUNT(*) as count FROM bounces WHERE 1=1"
+    query = "SELECT COUNT(*) FROM bounces WHERE 1=1"
     params = []
 
-    if filters:
-        if "date_from" in filters and filters["date_from"]:
-            query += " AND date >= ?"
-            params.append(filters["date_from"])
-        if "date_to" in filters and filters["date_to"]:
-            query += " AND date <= ?"
-            params.append(filters["date_to"])
-        if "status" in filters and filters["status"]:
-            query += " AND status = ?"
-            params.append(filters["status"])
-        if "domain" in filters and filters["domain"]:
-            query += " AND domain = ?"
-            params.append(filters["domain"])
+    if filters.get("date_from"):
+        query += " AND date >= ?"
+        params.append(filters["date_from"])
+    if filters.get("date_to"):
+        query += " AND date <= ?"
+        params.append(filters["date_to"])
+    if filters.get("status"):
+        query += " AND status = ?"
+        params.append(filters["status"])
+    if filters.get("domain"):
+        query += " AND domain = ?"
+        params.append(filters["domain"])
 
     cur.execute(query, tuple(params))
-    count = cur.fetchone()["count"]
+    total = cur.fetchone()[0]
     conn.close()
-    return count
+    return total
 
 
-def insert_pattern(pattern, reason):
-    """Insert a new bounce regex pattern."""
+def top_domains(limit=5):
+    """Return top domains by bounce volume."""
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("INSERT INTO patterns (pattern, reason) VALUES (?, ?)", (pattern, reason))
-    conn.commit()
+    cur.execute("""
+        SELECT domain, COUNT(*) as count
+        FROM bounces
+        GROUP BY domain
+        ORDER BY count DESC
+        LIMIT ?
+    """, (limit,))
+    rows = [dict(row) for row in cur.fetchall()]
     conn.close()
-
-
-def get_patterns():
-    """Return all bounce patterns."""
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM patterns")
-    rows = cur.fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-
-# Ensure DB schema exists at module import
-create_tables()
+    return rows

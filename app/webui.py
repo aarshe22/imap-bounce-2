@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from starlette.middleware.sessions import SessionMiddleware
 from dotenv import load_dotenv
 from io import BytesIO, StringIO
-from db import fetch_bounces, count_bounces
+from db import query_bounces as fetch_bounces, count_bounces
 
 load_dotenv()
 DB_PATH = "/data/bounces.db"
