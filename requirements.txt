@@ -5,3 +5,4 @@ mail-parser
 pandas
 jinja2
 itsdangerous
+python-multipart
