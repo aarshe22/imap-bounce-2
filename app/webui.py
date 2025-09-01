@@ -1,6 +1,6 @@
 import os
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -21,7 +21,7 @@ REQUIRED_VARS = [
     "IMAP_FOLDER_TEST", "IMAP_FOLDER_TESTPROCESSED",
     "IMAP_FOLDER_TESTPROBLEM", "IMAP_FOLDER_TESTSKIPPED",
     # SMTP
-    "SMTP_SERVER", "SMTP_PORT",
+    "SMTP_SERVER", "SMTP_PORT", "SMTP_USER", "SMTP_PASS",
     # WebUI
     "WEBUI_PORT", "SESSION_SECRET", "ADMIN_PASS"
 ]
@@ -73,7 +73,7 @@ async def dashboard(request: Request):
     })
 
 
-@app.get("/api/logs", response_class=HTMLResponse)
+@app.get("/api/logs", response_class=JSONResponse)
 async def api_logs(request: Request):
     if "user" not in request.session:
         return RedirectResponse(url="/login")
@@ -83,7 +83,7 @@ async def api_logs(request: Request):
     return {"data": rows, "recordsTotal": len(rows), "recordsFiltered": len(rows)}
 
 
-@app.get("/api/domain_stats", response_class=HTMLResponse)
+@app.get("/api/domain_stats", response_class=JSONResponse)
 async def api_domain_stats(request: Request):
     if "user" not in request.session:
         return RedirectResponse(url="/login")
