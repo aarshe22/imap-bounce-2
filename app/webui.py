@@ -103,24 +103,19 @@ async def logout(request: Request):
 # ============================================
 
 def stream_process(command: list[str]):
-    """Generator to stream stdout/stderr lines from a subprocess.
-       Forces DEBUG=true in environment when launched manually from WebUI.
-    """
-    env = os.environ.copy()
-    env["DEBUG"] = "true"
+    """Generator to stream stdout/stderr lines from a subprocess"""
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
 
-    process = subprocess.Popen(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        env=env
-    )
     for line in iter(process.stdout.readline, ''):
-        yield f"data: {line.strip()}\n\n"
+        # Ensure each message has extra line spacing in browser
+        clean_line = line.rstrip()
+        if clean_line:
+            yield f"data: {clean_line}\n\n"   # SSE requires \n\n to flush
+            yield f"data: \n\n"               # add a blank line for readability
+
     process.stdout.close()
     process.wait()
-    yield f"data: Process finished with exit code {process.returncode}\n\n"
+    yield f"data: --- Process finished with exit code {process.returncode} ---\n\n"
 
 @app.get("/run_bounce_check", response_class=HTMLResponse)
 async def run_bounce_check_page(request: Request):
