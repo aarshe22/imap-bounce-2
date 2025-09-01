@@ -1,118 +1,103 @@
 import os
-import sqlite3
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from dotenv import load_dotenv
-from db import fetch_bounces, count_bounces
+from db import query_bounces, count_bounces
 
-# Load environment variables from data/.env
-load_dotenv(dotenv_path="data/.env")
+# ============================================
+# Load environment and validate
+# ============================================
+load_dotenv("data/.env")
 
-WEBUI_PASSWORD = os.getenv("WEBUI_PASSWORD")
-SESSION_SECRET = os.getenv("SESSION_SECRET")
+REQUIRED_VARS = [
+    # IMAP
+    "IMAP_SERVER", "IMAP_PORT", "IMAP_SECURE",
+    "IMAP_USER", "IMAP_PASS",
+    "IMAP_FOLDER_INBOX", "IMAP_FOLDER_PROCESSED",
+    "IMAP_FOLDER_PROBLEM", "IMAP_FOLDER_SKIPPED",
+    "IMAP_FOLDER_TEST", "IMAP_FOLDER_TESTPROCESSED",
+    "IMAP_FOLDER_TESTPROBLEM", "IMAP_FOLDER_TESTSKIPPED",
+    # SMTP
+    "SMTP_SERVER", "SMTP_PORT",
+    # WebUI
+    "WEBUI_PORT", "SESSION_SECRET", "ADMIN_PASS"
+]
 
-if not WEBUI_PASSWORD or not SESSION_SECRET:
-    raise RuntimeError("WEBUI_PASSWORD and SESSION_SECRET must be set in data/.env")
+missing_vars = [var for var in REQUIRED_VARS if not os.getenv(var)]
 
-app = FastAPI()
+WEBUI_PORT = int(os.getenv("WEBUI_PORT", "8888"))
+SESSION_SECRET = os.getenv("SESSION_SECRET", "changeme")
+ADMIN_PASS = os.getenv("ADMIN_PASS", "changeme")
 
-# Middleware for session handling
+# ============================================
+# FastAPI app setup
+# ============================================
+app = FastAPI(title="IMAP Bounce Processor")
+
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET)
 
-# Mount docs/ as static so CSS/JS can load
-app.mount("/static", StaticFiles(directory="docs"), name="static")
+# Static + templates
+app.mount("/static", StaticFiles(directory="docs/static"), name="static")
+templates = Jinja2Templates(directory="docs/templates")
 
-
-def require_login(request: Request) -> bool:
-    return bool(request.session.get("authenticated"))
-
+# ============================================
+# Routes
+# ============================================
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    try:
-        with open(os.path.join("docs", "login.html")) as f:
-            return HTMLResponse(f.read())
-    except FileNotFoundError:
-        return HTMLResponse("<h1>Login page missing</h1>", status_code=500)
+    return templates.TemplateResponse("login.html", {"request": request, "error": None})
 
 
 @app.post("/login")
-async def login(request: Request, username: str = Form(...), password: str = Form(...)):
-    if password == WEBUI_PASSWORD:
-        request.session["authenticated"] = True
-        return RedirectResponse("/", status_code=302)
-    return RedirectResponse("/login", status_code=302)
+async def login(request: Request, password: str = Form(...)):
+    if password == ADMIN_PASS:
+        request.session["user"] = "admin"
+        return RedirectResponse(url="/", status_code=302)
+    return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid password"})
 
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
-    if not require_login(request):
-        return RedirectResponse("/login", status_code=302)
+    if "user" not in request.session:
+        return RedirectResponse(url="/login")
 
-    try:
-        with open(os.path.join("docs", "index.html")) as f:
-            return HTMLResponse(f.read())
-    except FileNotFoundError:
-        return HTMLResponse("<h1>Dashboard page missing</h1>", status_code=500)
+    bounce_count = count_bounces({})
+    return templates.TemplateResponse("dashboard.html", {
+        "request": request,
+        "bounce_count": bounce_count,
+        "missing_vars": missing_vars
+    })
+
+
+@app.get("/api/logs", response_class=HTMLResponse)
+async def api_logs(request: Request):
+    if "user" not in request.session:
+        return RedirectResponse(url="/login")
+
+    params = dict(request.query_params)
+    rows = query_bounces(params)
+    return {"data": rows, "recordsTotal": len(rows), "recordsFiltered": len(rows)}
+
+
+@app.get("/api/domain_stats", response_class=HTMLResponse)
+async def api_domain_stats(request: Request):
+    if "user" not in request.session:
+        return RedirectResponse(url="/login")
+
+    rows = query_bounces({"group_by": "domain"})
+    return {"data": rows}
 
 
 @app.get("/logout")
 async def logout(request: Request):
     request.session.clear()
-    return RedirectResponse("/login", status_code=302)
+    return RedirectResponse(url="/login")
 
 
-# -----------------------------
-# API ENDPOINTS
-# -----------------------------
-
-@app.get("/api/logs")
-async def api_logs(request: Request,
-                   draw: int = 1,
-                   start: int = 0,
-                   length: int = 25,
-                   date_from: str = "",
-                   date_to: str = "",
-                   status: str = "",
-                   domain: str = ""):
-    if not require_login(request):
-        return RedirectResponse("/login", status_code=302)
-
-    filters = {"date_from": date_from, "date_to": date_to,
-               "status": status, "domain": domain}
-    data = fetch_bounces(start, length, filters)
-    total = count_bounces(filters)
-
-    return {
-        "draw": draw,
-        "recordsTotal": total,
-        "recordsFiltered": total,
-        "data": data,
-    }
-
-
-@app.get("/api/domain_stats")
-async def api_domain_stats(request: Request):
-    if not require_login(request):
-        return RedirectResponse("/login", status_code=302)
-
-    conn = sqlite3.connect("data/bounces.db")
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    cur.execute("SELECT domain, COUNT(*) as count FROM bounces GROUP BY domain ORDER BY count DESC LIMIT 5")
-    rows = [dict(r) for r in cur.fetchall()]
-    conn.close()
-
-    return JSONResponse(rows)
-
-
-@app.get("/api/retry/{bounce_id}")
-async def retry_bounce(bounce_id: int, request: Request):
-    if not require_login(request):
-        return RedirectResponse("/login", status_code=302)
-
-    # Placeholder: retry logic (send original message again)
-    # For now just return JSON
-    return {"status": "ok", "message": f"Retry queued for bounce ID {bounce_id}"}
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("webui:app", host="0.0.0.0", port=WEBUI_PORT, reload=False)
