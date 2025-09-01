@@ -51,6 +51,7 @@
     <script>
         let eventSource = null;
         let running = false;
+        const streamUrl = "{{ stream_url }}";  // passed in from FastAPI
 
         function toggleTask() {
             const btn = document.getElementById("taskToggleBtn");
@@ -60,8 +61,7 @@
                 clearLog();
                 document.getElementById('logPanel').style.display = 'block';
 
-                const url = "{{ stream_url }}";  // Injected from FastAPI
-                eventSource = new EventSource(url);
+                eventSource = new EventSource(streamUrl);
 
                 eventSource.onmessage = function(event) {
                     const panel = document.getElementById('logPanel');
