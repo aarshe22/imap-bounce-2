@@ -5,54 +5,100 @@
     <title>{{ task_name }} - Live Log</title>
     <link rel="stylesheet" href="/static/style.css">
     <style>
-        .log-panel {
-    border: 1px solid #ccc;
-    background: #111;
-    color: #0f0;
-    padding: 10px;
-    height: 400px;
-    overflow-y: auto;
-    font-family: monospace;
-    font-size: 13px;
-    margin-top: 1em;
-    white-space: pre-wrap; /* 👈 preserve line feeds */
-}
-        .task-buttons { margin: 1em 0; }
+        #logPanel {
+            border: 1px solid #ccc;
+            background: #000;
+            color: #0f0;
+            padding: 10px;
+            height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 13px;
+            margin-top: 1em;
+            white-space: pre-wrap;
+        }
+        .task-button {
+            padding: 0.5em 1em;
+            font-weight: bold;
+            cursor: pointer;
+            border: none;
+            margin-right: 10px;
+        }
+        .start-btn {
+            background-color: red;
+            color: white;
+        }
+        .stop-btn {
+            background-color: green;
+            color: white;
+        }
     </style>
 </head>
 <body>
     <h1>{{ task_name }} - Live Log</h1>
 
-    <div class="task-buttons">
-        <button onclick="stopTask()">⏸ Stop Task</button>
-        <button onclick="clearLog()">🧹 Clear Log</button>
-        <a href="/" style="margin-left:10px;">🏠 Home</a>
-    </div>
+    <button id="toggleTaskBtn" class="task-button start-btn">▶ Start Task</button>
+    <button onclick="clearLog()">🧹 Clear Log</button>
+    <a href="/" style="margin-left:10px;">🏠 Home</a>
 
-    <div id="logPanel" class="log-panel"></div>
+    <div id="logPanel"></div>
 
     <script>
-        let eventSource = new EventSource("{{ stream_url }}");
+        let eventSource = null;
+        let running = false;
 
-        eventSource.onmessage = function(event) {
-    const panel = document.getElementById('logPanel');
-    panel.textContent += event.data + "\n";
-    panel.scrollTop = panel.scrollHeight;
-};
+        function toggleTask() {
+            if (running) {
+                stopTask();
+            } else {
+                startTask();
+            }
+        }
+
+        function startTask() {
+            clearLog();
+            running = true;
+            updateButton();
+
+            eventSource = new EventSource("{{ stream_url }}");
+            eventSource.onmessage = function(event) {
+                const panel = document.getElementById('logPanel');
+                panel.textContent += event.data + "\n";
+                panel.scrollTop = panel.scrollHeight;
+            };
+            eventSource.onerror = function() {
+                stopTask();
+            };
+        }
 
         function stopTask() {
             if (eventSource) {
                 eventSource.close();
                 eventSource = null;
-                const panel = document.getElementById('logPanel');
-                panel.textContent += "\n--- Task stopped ---\n";
-                panel.scrollTop = panel.scrollHeight;
             }
+            running = false;
+            updateButton();
+            const panel = document.getElementById('logPanel');
+            panel.textContent += "\n--- Task stopped ---\n";
+            panel.scrollTop = panel.scrollHeight;
         }
 
         function clearLog() {
             document.getElementById('logPanel').textContent = '';
         }
+
+        function updateButton() {
+            const btn = document.getElementById("toggleTaskBtn");
+            if (running) {
+                btn.textContent = "⏸ Stop Task";
+                btn.className = "task-button stop-btn";
+            } else {
+                btn.textContent = "▶ Start Task";
+                btn.className = "task-button start-btn";
+            }
+        }
+
+        document.getElementById("toggleTaskBtn").onclick = toggleTask;
     </script>
 </body>
 </html>

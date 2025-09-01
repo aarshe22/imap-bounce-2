@@ -88,28 +88,23 @@ def load_config():
     return config
 
 
-def connect_imap(config):
-    """Establish IMAP connection with SSL or STARTTLS"""
-    logger.debug(f"[DEBUG] Connecting to IMAP {config['IMAP_SERVER']}:{config['IMAP_PORT']} secure={config['IMAP_SECURE']}")
-    if config["IMAP_SECURE"] == "ssl":
-        mail = imaplib.IMAP4_SSL(config["IMAP_SERVER"], config["IMAP_PORT"])
-    else:
-        mail = imaplib.IMAP4(config["IMAP_SERVER"], config["IMAP_PORT"])
-        if config["IMAP_SECURE"] == "starttls":
-            mail.starttls()
-    mail.login(config["IMAP_USER"], config["IMAP_PASS"])
-    logger.debug("[DEBUG] IMAP login successful")
-    return mail
-
-
-def move_message(mail, num, folder):
-    """Move message to target folder"""
+def extract_original_recipients(msg):
+    """Try to pull the original To/Cc from embedded message/rfc822 part"""
+    orig_to, orig_cc = "", ""
     try:
-        mail.copy(num, folder)
-        mail.store(num, "+FLAGS", "\\Deleted")
-        logger.debug(f"[DEBUG] Moving message {num} → {folder}")
+        for part in msg.walk():
+            if part.get_content_type() == "message/rfc822":
+                logger.debug("[DEBUG] Found embedded original message/rfc822 part")
+                payload = part.get_payload()
+                if isinstance(payload, list) and len(payload) > 0:
+                    embedded = payload[0]
+                    orig_to = embedded.get("To", "")
+                    orig_cc = embedded.get("Cc", "")
+                    logger.debug(f"[DEBUG] Extracted from embedded: To={orig_to}, Cc={orig_cc}")
+                    break
     except Exception as e:
-        logger.error(f"Failed to move message {num} → {folder}: {e}")
+        logger.error(f"[DEBUG] Error extracting embedded original: {e}")
+    return orig_to, orig_cc
 
 
 def process_mailbox():
@@ -151,11 +146,17 @@ def process_mailbox():
             raw_email = msg_data[0][1]
             msg = email.message_from_bytes(raw_email)
 
-            # Extract
-            msg_to = msg.get("To", "")
-            msg_cc = msg.get("Cc", "")
+            # Default headers from the bounce
+            bounce_to = msg.get("To", "")
+            bounce_cc = msg.get("Cc", "")
             subject = msg.get("Subject", "")
-            logger.debug(f"[DEBUG] Processing message: To={msg_to}, Cc={msg_cc}, Subject={subject}")
+            logger.debug(f"[DEBUG] Bounce headers: To={bounce_to}, Cc={bounce_cc}, Subject={subject}")
+
+            # Try to extract the real original recipients
+            orig_to, orig_cc = extract_original_recipients(msg)
+            if not orig_to and not orig_cc:
+                logger.debug("[DEBUG] Fallback: No embedded original found, using bounce headers")
+                orig_to, orig_cc = bounce_to, bounce_cc
 
             # Classify bounce
             status, reason, domain = classify_bounce(msg)
@@ -166,17 +167,17 @@ def process_mailbox():
                 notified_to = config["NOTIFY_CC_TEST"]
                 notified_cc = []
             else:
-                notified_to = [e.strip() for e in msg_cc.split(",") if e.strip()]
+                notified_to = [e.strip() for e in orig_cc.split(",") if e.strip()]
                 notified_cc = config["NOTIFY_CC"]
 
             # Save into DB
-            insert_bounce(msg_to, msg_cc, status, reason, domain,
+            insert_bounce(orig_to, orig_cc, status, reason, domain,
                           notified_to=",".join(notified_to),
                           notified_cc=",".join(notified_cc))
 
             # Send notification
             if notified_to or notified_cc:
-                send_notification(config, subject, msg_to, msg_cc, status, reason, notified_to, notified_cc)
+                send_notification(config, subject, orig_to, orig_cc, status, reason, notified_to, notified_cc)
 
             # Folder routing
             if status == "failed":
@@ -191,53 +192,3 @@ def process_mailbox():
 
     except Exception as e:
         logger.error("Error processing mailbox: %s", str(e))
-
-
-def send_notification(config, subject, to_addr, cc_addr, status, reason, notified_to, notified_cc):
-    """Send bounce notification email (multipart text+html via templates)"""
-
-    smtp_description = SMTP_DESCRIPTIONS.get(str(status), "Unrecognized SMTP status code")
-
-    context = {
-        "org_name": config["ORG_NAME"],
-        "org_email": config["ORG_EMAIL"],
-        "org_logo_url": config["ORG_LOGO_URL"],
-        "bounced_email": to_addr,
-        "original_cc": cc_addr,
-        "smtp_status": status,
-        "smtp_reason": reason,
-        "smtp_description": smtp_description
-    }
-
-    # Render templates
-    text_body = TEMPLATE_ENV.get_template("email_notification.txt").render(context)
-    html_body = TEMPLATE_ENV.get_template("email_notification.html").render(context)
-
-    # Multipart message
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"Bounce Notification: {status}"
-    msg["From"] = f"{config['ORG_NAME']} <{config['ORG_EMAIL']}>"
-    if notified_to:
-        msg["To"] = ", ".join(notified_to)
-    if notified_cc:
-        msg["Cc"] = ", ".join(notified_cc)
-
-    msg.attach(MIMEText(text_body, "plain"))
-    msg.attach(MIMEText(html_body, "html"))
-
-    all_recipients = notified_to + notified_cc
-
-    try:
-        with smtplib.SMTP(config["SMTP_SERVER"], config["SMTP_PORT"]) as server:
-            if config["SMTP_USER"] and config["SMTP_PASS"]:
-                server.starttls()
-                server.login(config["SMTP_USER"], config["SMTP_PASS"])
-            logger.debug(f"[DEBUG] Sending notification → {all_recipients}")
-            server.sendmail(config["ORG_EMAIL"], all_recipients, msg.as_string())
-        print(f"Sent notification to {all_recipients}")
-    except Exception as e:
-        logger.error("Error sending notification: %s", str(e))
-
-
-if __name__ == "__main__":
-    process_mailbox()
