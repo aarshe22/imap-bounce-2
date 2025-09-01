@@ -28,6 +28,17 @@
             gap: 2em;
             margin-top: 1em;
         }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+        table th, table td {
+            border: 1px solid #ddd;
+            padding: 6px;
+        }
+        table th {
+            background: #f4f4f4;
+        }
         #domainChart {
             width: 400px;
             height: 400px;
@@ -53,16 +64,25 @@
     </div>
 
     <div class="stats-container">
-        <div>
+        <div style="flex:2;">
             <h3>Recent Bounces</h3>
-            <table border="1" cellpadding="5" cellspacing="0">
+            <table>
                 <thead>
-                    <tr><th>Date</th><th>To</th><th>Status</th><th>Reason</th><th>Domain</th></tr>
+                    <tr>
+                        <th>Date</th>
+                        <th>Original To</th>
+                        <th>Original Cc</th>
+                        <th>Status</th>
+                        <th>Reason</th>
+                        <th>Domain</th>
+                        <th>Notified To</th>
+                        <th>Notified Cc</th>
+                    </tr>
                 </thead>
                 <tbody id="bounceTableBody"></tbody>
             </table>
         </div>
-        <div>
+        <div style="flex:1;">
             <h3>Top Domains</h3>
             <canvas id="domainChart"></canvas>
         </div>
@@ -109,7 +129,16 @@
             tbody.innerHTML = "";
             logs.data.slice(0,10).forEach(row => {
                 let tr = document.createElement("tr");
-                tr.innerHTML = `<td>${row.date}</td><td>${row.email_to}</td><td>${row.status}</td><td>${row.reason}</td><td>${row.domain}</td>`;
+                tr.innerHTML = `
+                    <td>${row.date}</td>
+                    <td>${row.email_to}</td>
+                    <td>${row.email_cc}</td>
+                    <td>${row.status}</td>
+                    <td>${row.reason}</td>
+                    <td>${row.domain}</td>
+                    <td>${row.notified_to || ""}</td>
+                    <td>${row.notified_cc || ""}</td>
+                `;
                 tbody.appendChild(tr);
             });
 

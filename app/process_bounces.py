@@ -19,6 +19,7 @@ logger = logging.getLogger("process_bounces")
 
 ENV_FILE = "data/.env"
 
+
 def load_config():
     """Reload config from .env each run (supports real-time toggle)"""
     load_dotenv(ENV_FILE, override=True)
@@ -58,6 +59,7 @@ def load_config():
     }
     return config
 
+
 def connect_imap(config):
     """Establish IMAP connection with SSL or STARTTLS"""
     logger.debug(f"[DEBUG] Connecting to IMAP {config['IMAP_SERVER']}:{config['IMAP_PORT']} secure={config['IMAP_SECURE']}")
@@ -71,6 +73,7 @@ def connect_imap(config):
     logger.debug("[DEBUG] IMAP login successful")
     return mail
 
+
 def move_message(mail, num, folder):
     """Move message to target folder"""
     try:
@@ -79,6 +82,7 @@ def move_message(mail, num, folder):
         logger.debug(f"[DEBUG] Moving message {num} → {folder}")
     except Exception as e:
         logger.error(f"Failed to move message {num} → {folder}: {e}")
+
 
 def process_mailbox():
     """Connect to IMAP and process bounce emails"""
@@ -129,19 +133,22 @@ def process_mailbox():
             status, reason, domain = classify_bounce(msg)
             logger.debug(f"[DEBUG] Classification: status={status}, reason={reason}, domain={domain}")
 
-            # Save
-            insert_bounce(msg_to, msg_cc, status, reason, domain)
-
-            # Notify
+            # Determine notification recipients
             if config["IMAP_TEST_MODE"]:
-                notify_emails = config["NOTIFY_CC_TEST"]
-                logger.debug(f"[DEBUG] Test mode: notifying {notify_emails}")
+                notified_to = config["NOTIFY_CC_TEST"]
+                notified_cc = []
             else:
-                notify_emails = config["NOTIFY_CC"] + ([e.strip() for e in msg_cc.split(",")] if msg_cc else [])
-                logger.debug(f"[DEBUG] Normal mode: notifying {notify_emails}")
+                notified_to = [e.strip() for e in msg_cc.split(",") if e.strip()]
+                notified_cc = config["NOTIFY_CC"]
 
-            if notify_emails:
-                send_notification(config, subject, msg_to, msg_cc, status, reason, notify_emails)
+            # Save into DB with notified recipients
+            insert_bounce(msg_to, msg_cc, status, reason, domain,
+                          notified_to=",".join(notified_to),
+                          notified_cc=",".join(notified_cc))
+
+            # Send notification
+            if notified_to or notified_cc:
+                send_notification(config, subject, msg_to, msg_cc, status, reason, notified_to, notified_cc)
 
             # Folder routing
             if status == "failed":
@@ -157,25 +164,36 @@ def process_mailbox():
     except Exception as e:
         logger.error("Error processing mailbox: %s", str(e))
 
-def send_notification(config, subject, to_addr, cc_addr, status, reason, notify_emails):
+
+def send_notification(config, subject, to_addr, cc_addr, status, reason, notified_to, notified_cc):
     """Send bounce notification email"""
     msg = MIMEText(
-        f"Bounce detected\n\nTo: {to_addr}\nCc: {cc_addr}\nStatus: {status}\nReason: {reason}"
+        f"Bounce detected\n\n"
+        f"Original To: {to_addr}\n"
+        f"Original Cc: {cc_addr}\n"
+        f"Status: {status}\n"
+        f"Reason: {reason}"
     )
     msg["Subject"] = f"Bounce Notification: {status}"
     msg["From"] = config["IMAP_USER"]
-    msg["To"] = ", ".join(notify_emails)
+    if notified_to:
+        msg["To"] = ", ".join(notified_to)
+    if notified_cc:
+        msg["Cc"] = ", ".join(notified_cc)
+
+    all_recipients = notified_to + notified_cc
 
     try:
         with smtplib.SMTP(config["SMTP_SERVER"], config["SMTP_PORT"]) as server:
             if config["SMTP_USER"] and config["SMTP_PASS"]:
                 server.starttls()
                 server.login(config["SMTP_USER"], config["SMTP_PASS"])
-            logger.debug(f"[DEBUG] Sending notification to {notify_emails}")
-            server.sendmail(config["IMAP_USER"], notify_emails, msg.as_string())
-        print(f"Sent notification to {notify_emails}")
+            logger.debug(f"[DEBUG] Sending notification → {all_recipients}")
+            server.sendmail(config["IMAP_USER"], all_recipients, msg.as_string())
+        print(f"Sent notification to {all_recipients}")
     except Exception as e:
         logger.error("Error sending notification: %s", str(e))
+
 
 if __name__ == "__main__":
     process_mailbox()
