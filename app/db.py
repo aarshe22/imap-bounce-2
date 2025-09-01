@@ -10,6 +10,7 @@ def get_connection():
     return conn
 
 def init_db():
+    """Ensure the bounces table exists"""
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
@@ -27,6 +28,7 @@ def init_db():
     conn.close()
 
 def insert_bounce(email_to, email_cc, status, reason, domain):
+    init_db()  # Safety: ensure table exists before inserting
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
@@ -37,6 +39,7 @@ def insert_bounce(email_to, email_cc, status, reason, domain):
     conn.close()
 
 def query_bounces(filters=None):
+    init_db()  # Safety: ensure table exists before querying
     filters = filters or {}
     query = "SELECT * FROM bounces WHERE 1=1"
     params = []
@@ -59,6 +62,7 @@ def query_bounces(filters=None):
     return rows
 
 def count_bounces(filters=None):
+    init_db()  # Safety: ensure table exists before counting
     filters = filters or {}
     query = "SELECT COUNT(*) FROM bounces WHERE 1=1"
     params = []

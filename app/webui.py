@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from dotenv import load_dotenv
-from db import query_bounces, count_bounces
+from db import query_bounces, count_bounces, init_db
 
 # ============================================
 # Load environment and validate
@@ -38,6 +38,11 @@ ADMIN_PASS = os.getenv("ADMIN_PASS", "changeme")
 app = FastAPI(title="IMAP Bounce Processor")
 
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET)
+
+# Run init_db at startup so table always exists
+@app.on_event("startup")
+def startup_event():
+    init_db()
 
 # Static + templates
 app.mount("/static", StaticFiles(directory="docs/static"), name="static")
