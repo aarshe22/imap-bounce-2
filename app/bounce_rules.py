@@ -1,11 +1,12 @@
-# bounce_rules.py
 """
 Bounce detection module.
-- Uses regex patterns for provider-specific bounce messages.
+- Regex patterns for provider-specific bounce messages.
 - Falls back to SMTP status codes (RFC 3463, RFC 5248).
+- Extracts domain for reporting/dashboard.
 """
 
-import re, email
+import re
+import email
 
 # SMTP Status code dictionary
 SMTP_STATUS_CODES = {
@@ -52,53 +53,52 @@ BOUNCE_PATTERNS = [
     (re.compile(r"policy violation", re.I), "Policy violation"),
 ]
 
-def detect_bounce(msg):
-    """
-    Detect whether an email is a bounce message and return (reason, is_bounce).
-    Tries in order:
-    1. Provider regex patterns
-    2. SMTP status codes
-    3. DSN (Delivery Status Notification) headers
-    """
+# Extract domain helper
+def extract_domain(text: str) -> str:
+    match = re.search(r'[\w\.-]+@([\w\.-]+)', text)
+    if match:
+        return match.group(1).lower()
+    return "unknown"
 
-    # Look into subject line
+def classify_bounce(msg):
+    """
+    Detect whether an email is a bounce.
+    Returns: (status, reason, domain)
+    """
     subject = msg.get("Subject", "")
-    for regex, reason in BOUNCE_PATTERNS:
-        if regex.search(subject):
-            return reason, True
+    body = ""
 
-    # Look into message body
+    # Flatten body text
     if msg.is_multipart():
         for part in msg.walk():
             try:
-                body = part.get_payload(decode=True).decode(errors="ignore")
+                body += part.get_payload(decode=True).decode(errors="ignore") + "\n"
             except Exception:
                 continue
-            for regex, reason in BOUNCE_PATTERNS:
-                if regex.search(body):
-                    return reason, True
-            for code, reason in SMTP_STATUS_CODES.items():
-                if code in body:
-                    return reason, True
     else:
         try:
             body = msg.get_payload(decode=True).decode(errors="ignore")
         except Exception:
             body = ""
-        for regex, reason in BOUNCE_PATTERNS:
-            if regex.search(body):
-                return reason, True
-        for code, reason in SMTP_STATUS_CODES.items():
-            if code in body:
-                return reason, True
 
-    # Fallback: DSN headers
+    text = subject + "\n" + body
+
+    # 1. Regex patterns
+    for regex, reason in BOUNCE_PATTERNS:
+        if regex.search(text):
+            return "failed", reason, extract_domain(text)
+
+    # 2. SMTP status codes
+    for code, reason in SMTP_STATUS_CODES.items():
+        if code in text:
+            return "failed", reason, extract_domain(text)
+
+    # 3. DSN headers
     dsn_action = msg.get("Action")
     dsn_status = msg.get("Status")
-    if dsn_action or dsn_status:
-        if dsn_status and dsn_status in SMTP_STATUS_CODES:
-            return SMTP_STATUS_CODES[dsn_status], True
-        elif dsn_action:
-            return f"DSN reported action: {dsn_action}", True
+    if dsn_status and dsn_status in SMTP_STATUS_CODES:
+        return "failed", SMTP_STATUS_CODES[dsn_status], extract_domain(text)
+    if dsn_action:
+        return "failed", f"DSN action: {dsn_action}", extract_domain(text)
 
-    return "Not a bounce", False
+    return "unknown", "Not a bounce", extract_domain(text)

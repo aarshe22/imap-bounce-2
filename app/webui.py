@@ -1,77 +1,61 @@
 import os
-import sqlite3
-import pandas as pd
 from fastapi import FastAPI, Request, Form, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.sessions import SessionMiddleware
-from starlette.middleware.sessions import SessionMiddleware as StarletteSessionMiddleware
-from starlette.responses import RedirectResponse
-from starlette.status import HTTP_303_SEE_OTHER
-from db import fetch_bounces, count_bounces, log_bounce, init_db
+from starlette.middleware.sessions import SessionMiddleware
+from starlette.responses import Response
+from dotenv import load_dotenv
+from db import query_bounces, count_bounces, insert_bounce, init_db
+
+# Load environment
+load_dotenv()
+
+WEBUI_PASSWORD = os.getenv("WEBUI_PASSWORD", "changeme")
+SECRET_KEY = os.getenv("SESSION_SECRET_KEY", "supersecret")
 
 app = FastAPI()
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 
-# Session middleware (use starlette)
-SECRET_KEY = os.getenv("SECRET_KEY", "super-secret")
-app.add_middleware(StarletteSessionMiddleware, secret_key=SECRET_KEY)
+# Static files (e.g. dashboard.html, CSS, JS)
+app.mount("/static", StaticFiles(directory="docs"), name="static")
 
-# Static files
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
-
-
-def get_db_connection():
-    conn = sqlite3.connect("data/bounces.db")
-    conn.row_factory = sqlite3.Row
-    return conn
+# Ensure DB is ready
+init_db()
 
 
-def query_db(query, params=()):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(query, params)
-    rows = cur.fetchall()
-    conn.close()
-    return rows
+# ---------- Helpers ----------
+def require_login(request: Request):
+    if not request.session.get("authenticated"):
+        return False
+    return True
 
 
+# ---------- Routes ----------
 @app.get("/login", response_class=HTMLResponse)
-async def login_form(request: Request):
-    return HTMLResponse("""
-    <html>
-    <head><title>Login</title></head>
-    <body>
-    <h2>Login</h2>
-    <form action="/login" method="post">
-      <input type="password" name="password" placeholder="Password"/>
-      <input type="submit" value="Login"/>
-    </form>
-    </body>
-    </html>
-    """)
+async def login_page():
+    with open("docs/login.html") as f:
+        return HTMLResponse(f.read())
 
 
 @app.post("/login")
 async def login(request: Request, password: str = Form(...)):
-    correct_password = os.getenv("WEBUI_PASSWORD", "changeme")
-    if password == correct_password:
+    if password == WEBUI_PASSWORD:
         request.session["authenticated"] = True
-        return RedirectResponse("/", status_code=HTTP_303_SEE_OTHER)
-    return HTMLResponse("<h3>Invalid password</h3><a href='/login'>Try again</a>", status_code=401)
+        return RedirectResponse(url="/", status_code=302)
+    return HTMLResponse("<h3>Invalid password</h3>", status_code=401)
 
 
-@app.middleware("http")
-async def auth_middleware(request: Request, call_next):
-    if request.url.path.startswith("/static") or request.url.path.startswith("/login"):
-        return await call_next(request)
-    if not request.session.get("authenticated"):
-        return RedirectResponse("/login")
-    return await call_next(request)
+@app.get("/logout")
+async def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse(url="/login", status_code=302)
 
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
-    with open("app/templates/dashboard.html") as f:
+    if not require_login(request):
+        return RedirectResponse(url="/login", status_code=302)
+    with open("docs/dashboard.html") as f:
         return HTMLResponse(f.read())
 
 
@@ -81,29 +65,46 @@ async def api_logs(
     draw: int = 1,
     start: int = 0,
     length: int = 25,
-    date_from: str = "",
-    date_to: str = "",
-    status: str = "",
-    domain: str = ""
+    date_from: str = None,
+    date_to: str = None,
+    status: str = None,
+    domain: str = None,
 ):
+    if not require_login(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
     filters = {
         "date_from": date_from,
         "date_to": date_to,
         "status": status,
-        "domain": domain
+        "domain": domain,
     }
+
+    data = query_bounces(filters, limit=length, offset=start)
     total = count_bounces(filters)
-    rows = fetch_bounces(start=start, length=length, filters=filters)
-    data = [dict(r) for r in rows]
+
     return {
         "draw": draw,
         "recordsTotal": total,
         "recordsFiltered": total,
-        "data": data
+        "data": data,
     }
 
 
 @app.get("/api/domain_stats")
-async def api_domain_stats():
-    rows = query_db("SELECT domain, COUNT(*) as count FROM bounces GROUP BY domain ORDER BY count DESC LIMIT 5")
-    return [{"domain": r["domain"], "count": r["count"]} for r in rows]
+async def api_domain_stats(request: Request):
+    if not require_login(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    conn_data = []
+    from db import get_connection
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT domain, COUNT(*) as count FROM bounces GROUP BY domain ORDER BY count DESC LIMIT 5")
+    rows = cur.fetchall()
+    conn.close()
+
+    for row in rows:
+        conn_data.append({"domain": row["domain"], "count": row["count"]})
+
+    return conn_data
