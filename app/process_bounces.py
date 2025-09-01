@@ -1,98 +1,101 @@
 import os
 import imaplib
 import email
-from email.header import decode_header
+import re
 import smtplib
 from email.mime.text import MIMEText
 from db import log_bounce
-from bounce_patterns import classify_bounce
+from bounce_patterns import BOUNCE_PATTERNS
 
-# Environment variables
-IMAP_SERVER      = os.getenv("IMAP_SERVER")
-IMAP_USER        = os.getenv("IMAP_USER")
-IMAP_PASS        = os.getenv("IMAP_PASS")
-NOTIFY_CC        = os.getenv("NOTIFY_CC", "")
-NOTIFY_CC_TEST   = os.getenv("NOTIFY_CC_TEST", "")
-IMAP_TEST_MODE   = os.getenv("IMAP_TEST_MODE", "false").lower() == "true"
+IMAP_SERVER   = os.getenv("IMAP_SERVER")
+IMAP_USER     = os.getenv("IMAP_USER")
+IMAP_PASSWORD = os.getenv("IMAP_PASSWORD")
+SMTP_SERVER   = os.getenv("SMTP_SERVER", "localhost")
+NOTIFY_CC     = os.getenv("NOTIFY_CC", "").split(",")
+NOTIFY_CC_TEST = os.getenv("NOTIFY_CC_TEST", "").split(",")
+IMAP_TEST_MODE = os.getenv("IMAP_TEST_MODE", "false").lower() == "true"
+
 
 def connect_imap():
-    """Connect and return IMAP connection."""
-    host, port = (IMAP_SERVER.split(":") + ["993"])[:2]
-    port = int(port)
-    conn = imaplib.IMAP4_SSL(host, port)
-    conn.login(IMAP_USER, IMAP_PASS)
-    return conn
+    server, port = (IMAP_SERVER.split(":") + ["143"])[:2]
+    M = imaplib.IMAP4(server, int(port))
+    M.login(IMAP_USER, IMAP_PASSWORD)
+    return M
 
-def process_bounces():
-    """Main IMAP loop to find and process bounce emails."""
-    conn = connect_imap()
-    conn.select("INBOX")
 
-    # Search all unseen messages
-    status, messages = conn.search(None, '(UNSEEN)')
-    if status != "OK":
-        print("No messages found.")
+def extract_status_and_reason(body):
+    for pattern, status, reason in BOUNCE_PATTERNS:
+        if re.search(pattern, body, re.IGNORECASE):
+            return status, reason
+    return "unknown", "Unrecognized bounce format"
+
+
+def send_notification(original_to, original_cc, status, reason):
+    recipients = []
+    if IMAP_TEST_MODE:
+        recipients = NOTIFY_CC_TEST
+    else:
+        if original_cc:
+            recipients.extend(original_cc)
+        recipients.extend(NOTIFY_CC)
+
+    recipients = [r.strip() for r in recipients if r.strip()]
+    if not recipients:
         return
 
-    for num in messages[0].split():
-        res, msg_data = conn.fetch(num, "(RFC822)")
-        if res != "OK":
-            continue
+    subject = f"Bounce detected for {original_to} - {status}"
+    body = f"""
+    A bounce was detected.
 
-        raw_email = msg_data[0][1]
-        msg = email.message_from_bytes(raw_email)
+    To: {original_to}
+    CC: {", ".join(original_cc) if original_cc else "(none)"}
+    Status: {status}
+    Reason: {reason}
+    """
 
-        subject, encoding = decode_header(msg.get("Subject"))[0]
-        if isinstance(subject, bytes):
-            subject = subject.decode(encoding or "utf-8", errors="ignore")
-
-        email_to = msg.get("To", "")
-        email_cc = msg.get("Cc", "")
-
-        # Classify bounce reason
-        reason, status = classify_bounce(subject + " " + str(msg))
-
-        # Log bounce into SQLite
-        log_bounce(email_to, email_cc, status, reason)
-
-        # Determine recipients for notifications
-        if IMAP_TEST_MODE:
-            notify_recipients = NOTIFY_CC_TEST.split(",") if NOTIFY_CC_TEST else []
-        else:
-            notify_recipients = []
-            if email_cc:
-                notify_recipients += [c.strip() for c in email_cc.split(",")]
-            if NOTIFY_CC:
-                notify_recipients += [c.strip() for c in NOTIFY_CC.split(",")]
-
-        # Send notifications
-        if notify_recipients:
-            send_notification(email_to, email_cc, reason, notify_recipients)
-
-        # Mark processed
-        conn.store(num, '+FLAGS', '\\Seen')
-
-    conn.close()
-    conn.logout()
-
-def send_notification(email_to, email_cc, reason, recipients):
-    """Send bounce notification to recipients."""
-    body = f"""Bounce detected:
-To: {email_to}
-CC: {email_cc}
-Reason: {reason}
-"""
     msg = MIMEText(body)
-    msg["Subject"] = "Bounce Notification"
+    msg["Subject"] = subject
     msg["From"] = IMAP_USER
     msg["To"] = ", ".join(recipients)
 
-    try:
-        with smtplib.SMTP("localhost") as server:
-            server.sendmail(IMAP_USER, recipients, msg.as_string())
-            print(f"Notification sent to {recipients}")
-    except Exception as e:
-        print(f"Error sending notification: {e}")
+    with smtplib.SMTP(SMTP_SERVER) as s:
+        s.sendmail(IMAP_USER, recipients, msg.as_string())
+
+
+def process_bounces():
+    M = connect_imap()
+    M.select("INBOX")
+    typ, data = M.search(None, "UNSEEN")
+    for num in data[0].split():
+        typ, msg_data = M.fetch(num, "(RFC822)")
+        raw_email = msg_data[0][1]
+        msg = email.message_from_bytes(raw_email)
+
+        original_to = msg.get("To", "")
+        original_cc = msg.get_all("Cc", [])
+
+        body = ""
+        if msg.is_multipart():
+            for part in msg.walk():
+                if part.get_content_type() == "text/plain":
+                    body = part.get_payload(decode=True).decode(errors="ignore")
+                    break
+        else:
+            body = msg.get_payload(decode=True).decode(errors="ignore")
+
+        status, reason = extract_status_and_reason(body)
+
+        # persist
+        log_bounce(original_to, original_cc, status, reason)
+
+        # notify
+        send_notification(original_to, original_cc, status, reason)
+
+        # mark as seen
+        M.store(num, "+FLAGS", "\\Seen")
+    M.close()
+    M.logout()
+
 
 if __name__ == "__main__":
     process_bounces()

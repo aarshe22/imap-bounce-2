@@ -1,25 +1,21 @@
-# db.py
 import sqlite3
 import os
 
-DB_PATH = os.getenv("DB_PATH", "/data/bounces.db")
+DB_PATH = os.path.join(os.getenv("DATA_DIR", "/data"), "bounces.db")
 
 
 def get_connection():
-    """Return a SQLite connection with row access by name."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     return conn
 
 
-def init_db():
-    """Initialize database schema if not already created."""
+def create_tables():
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS bounces (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT NOT NULL,
+            date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             email_to TEXT,
             email_cc TEXT,
             status TEXT,
@@ -31,28 +27,30 @@ def init_db():
     conn.close()
 
 
-def log_bounce(date, email_to, email_cc, status, reason, domain):
-    """Insert a bounce log entry into the database."""
+def log_bounce(email_to, email_cc, status, reason):
+    domain = ""
+    if email_to and "@" in email_to:
+        domain = email_to.split("@")[-1]
+
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
-        INSERT INTO bounces (date, email_to, email_cc, status, reason, domain)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (date, email_to, email_cc, status, reason, domain))
+        INSERT INTO bounces (email_to, email_cc, status, reason, domain)
+        VALUES (?, ?, ?, ?, ?)
+    """, (
+        email_to,
+        ", ".join(email_cc) if isinstance(email_cc, list) else str(email_cc),
+        status,
+        reason,
+        domain
+    ))
     conn.commit()
     conn.close()
 
 
-def fetch_bounces(filters=None, start=0, length=25):
-    """
-    Fetch bounce records with optional filters and pagination.
-    Filters: dict with keys 'date_from', 'date_to', 'status', 'domain'
-    """
+def query_bounces(offset=0, limit=25, filters=None):
     filters = filters or {}
-    conn = get_connection()
-    cur = conn.cursor()
-
-    query = "SELECT * FROM bounces WHERE 1=1"
+    query = "SELECT id, date, email_to, email_cc, status, reason, domain FROM bounces WHERE 1=1"
     params = []
 
     if filters.get("date_from"):
@@ -69,20 +67,30 @@ def fetch_bounces(filters=None, start=0, length=25):
         params.append(filters["domain"])
 
     query += " ORDER BY id DESC LIMIT ? OFFSET ?"
-    params.extend([length, start])
+    params.extend([limit, offset])
 
+    conn = get_connection()
+    cur = conn.cursor()
     cur.execute(query, tuple(params))
-    rows = [dict(row) for row in cur.fetchall()]
+    rows = cur.fetchall()
     conn.close()
-    return rows
+
+    return [
+        {
+            "id": r[0],
+            "date": r[1],
+            "email_to": r[2],
+            "email_cc": r[3],
+            "status": r[4],
+            "reason": r[5],
+            "domain": r[6],
+        }
+        for r in rows
+    ]
 
 
 def count_bounces(filters=None):
-    """Count bounce records with optional filters (used for DataTables)."""
     filters = filters or {}
-    conn = get_connection()
-    cur = conn.cursor()
-
     query = "SELECT COUNT(*) FROM bounces WHERE 1=1"
     params = []
 
@@ -99,23 +107,13 @@ def count_bounces(filters=None):
         query += " AND domain = ?"
         params.append(filters["domain"])
 
-    cur.execute(query, tuple(params))
-    total = cur.fetchone()[0]
-    conn.close()
-    return total
-
-
-def top_domains(limit=5):
-    """Return top domains by bounce volume."""
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("""
-        SELECT domain, COUNT(*) as count
-        FROM bounces
-        GROUP BY domain
-        ORDER BY count DESC
-        LIMIT ?
-    """, (limit,))
-    rows = [dict(row) for row in cur.fetchall()]
+    cur.execute(query, tuple(params))
+    count = cur.fetchone()[0]
     conn.close()
-    return rows
+    return count
+
+
+# Ensure schema always exists at startup
+create_tables()
