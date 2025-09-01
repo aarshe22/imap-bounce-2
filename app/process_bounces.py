@@ -26,7 +26,9 @@ def process_mailbox():
     init_db()
 
     try:
-        mail = imaplib.IMAP4(IMAP_SERVER.split(":")[0], int(IMAP_SERVER.split(":")[1]))
+        # Support "host:port" in IMAP_SERVER
+        host, port = IMAP_SERVER.split(":") if ":" in IMAP_SERVER else (IMAP_SERVER, 143)
+        mail = imaplib.IMAP4(host, int(port))
         mail.login(IMAP_USER, IMAP_PASS)
         mail.select("INBOX")
 
@@ -48,27 +50,20 @@ def process_mailbox():
             msg_to = msg.get("To", "")
             msg_cc = msg.get("Cc", "")
             subject = msg.get("Subject", "")
-            body = ""
 
-            if msg.is_multipart():
-                for part in msg.walk():
-                    if part.get_content_type() == "text/plain":
-                        body = part.get_payload(decode=True).decode(errors="ignore")
-                        break
-            else:
-                body = msg.get_payload(decode=True).decode(errors="ignore")
-
-            # Classify bounce
-            status, reason, domain = classify_bounce(body, subject)
+            # Classify bounce (pass full email.message.Message)
+            status, reason, domain = classify_bounce(msg)
 
             # Save to DB
             insert_bounce(msg_to, msg_cc, status, reason, domain)
 
             # Notify logic
             if IMAP_TEST_MODE:
-                notify_emails = NOTIFY_CC_TEST
+                notify_emails = [n for n in NOTIFY_CC_TEST if n]
             else:
-                notify_emails = [*NOTIFY_CC, *msg_cc.split(",") if msg_cc else []]
+                cc_list = [c.strip() for c in msg_cc.split(",")] if msg_cc else []
+                notify_emails = [*NOTIFY_CC, *cc_list]
+                notify_emails = [n for n in notify_emails if n]
 
             if notify_emails:
                 send_notification(subject, msg_to, msg_cc, status, reason, notify_emails)
