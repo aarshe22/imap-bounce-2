@@ -35,6 +35,7 @@ COPY docs/ /app/docs/
 
 # Ensure permissions
 RUN chown -R appuser:appuser /app /data /logs
+RUN chmod -R 755 /app /data /logs
 
 USER appuser
 
