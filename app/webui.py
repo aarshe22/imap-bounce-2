@@ -5,13 +5,14 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse,
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
-from dotenv import load_dotenv
+from dotenv import load_dotenv, set_key
 from db import query_bounces, count_bounces
 
 # ============================================
 # Load environment and validate
 # ============================================
-load_dotenv("data/.env")
+ENV_FILE = "data/.env"
+load_dotenv(ENV_FILE)
 
 REQUIRED_VARS = [
     # IMAP
@@ -32,6 +33,10 @@ missing_vars = [var for var in REQUIRED_VARS if not os.getenv(var)]
 WEBUI_PORT = int(os.getenv("WEBUI_PORT", "8888"))
 SESSION_SECRET = os.getenv("SESSION_SECRET", "changeme")
 ADMIN_PASS = os.getenv("ADMIN_PASS", "changeme")
+
+# Runtime toggles
+TEST_MODE = os.getenv("IMAP_TEST_MODE", "false").lower() == "true"
+SCHEDULER_ENABLED = os.getenv("SCHEDULER_ENABLED", "true").lower() == "true"
 
 # ============================================
 # FastAPI app setup
@@ -73,29 +78,16 @@ async def dashboard(request: Request):
         "missing_vars": missing_vars
     })
 
+
 @app.get("/api/logs", response_class=JSONResponse)
-async def api_logs(request: Request, page: int = 1, per_page: int = 20):
+async def api_logs(request: Request):
     if "user" not in request.session:
         return RedirectResponse(url="/login")
 
     params = dict(request.query_params)
     rows = query_bounces(params)
+    return {"data": rows, "recordsTotal": len(rows), "recordsFiltered": len(rows)}
 
-    # Sort newest first
-    rows = sorted(rows, key=lambda r: r.get("date", ""), reverse=True)
-
-    total = len(rows)
-    start = (page - 1) * per_page
-    end = start + per_page
-    page_data = rows[start:end]
-
-    return {
-        "data": page_data,
-        "recordsTotal": total,
-        "page": page,
-        "per_page": per_page,
-        "total_pages": (total + per_page - 1) // per_page
-    }
 
 @app.get("/api/domain_stats", response_class=JSONResponse)
 async def api_domain_stats(request: Request):
@@ -117,56 +109,66 @@ async def logout(request: Request):
 
 def stream_process(command: list[str]):
     """Generator to stream stdout/stderr lines from a subprocess"""
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     for line in iter(process.stdout.readline, ''):
-        # Ensure each message has extra line spacing in browser
-        clean_line = line.rstrip()
-        if clean_line:
-            yield f"data: {clean_line}\n\n"   # SSE requires \n\n to flush
-            yield f"data: \n\n"               # add a blank line for readability
-
+        yield f"data: {line.strip()}\n\n"
     process.stdout.close()
     process.wait()
-    yield f"data: --- Process finished with exit code {process.returncode} ---\n\n"
+    yield f"data: Process finished with exit code {process.returncode}\n\n"
 
 @app.get("/run_bounce_check", response_class=HTMLResponse)
 async def run_bounce_check_page(request: Request):
     if "user" not in request.session:
         return RedirectResponse(url="/login")
-    return templates.TemplateResponse("task_log.html", {
-        "request": request,
-        "task_name": "Bounce Check",
-        "stream_url": "/run_bounce_check_stream"
-    })
+    return templates.TemplateResponse("task_log.html", {"request": request, "task_name": "Bounce Check", "stream_url": "/run_bounce_check_stream"})
 
 @app.get("/run_bounce_check_stream")
 async def run_bounce_check_stream(request: Request):
     if "user" not in request.session:
         return RedirectResponse(url="/login")
-    return StreamingResponse(
-        stream_process(["python", "/app/process_bounces.py"]),
-        media_type="text/event-stream"
-    )
+    return StreamingResponse(stream_process(["python", "/app/process_bounces.py"]), media_type="text/event-stream")
 
 @app.get("/run_retry_queue", response_class=HTMLResponse)
 async def run_retry_queue_page(request: Request):
     if "user" not in request.session:
         return RedirectResponse(url="/login")
-    return templates.TemplateResponse("task_log.html", {
-        "request": request,
-        "task_name": "Retry Queue",
-        "stream_url": "/run_retry_queue_stream"
-    })
+    return templates.TemplateResponse("task_log.html", {"request": request, "task_name": "Retry Queue", "stream_url": "/run_retry_queue_stream"})
 
 @app.get("/run_retry_queue_stream")
 async def run_retry_queue_stream(request: Request):
     if "user" not in request.session:
         return RedirectResponse(url="/login")
-    return StreamingResponse(
-        stream_process(["python", "/app/retry_queue.py"]),
-        media_type="text/event-stream"
-    )
+    return StreamingResponse(stream_process(["python", "/app/retry_queue.py"]), media_type="text/event-stream")
+
+# ============================================
+# Toggle endpoints
+# ============================================
+
+@app.get("/get_toggles", response_class=JSONResponse)
+async def get_toggles(request: Request):
+    if "user" not in request.session:
+        return RedirectResponse(url="/login")
+    return {"test_mode": TEST_MODE, "scheduler": SCHEDULER_ENABLED}
+
+@app.post("/toggle_test_mode", response_class=JSONResponse)
+async def toggle_test_mode(request: Request):
+    global TEST_MODE
+    if "user" not in request.session:
+        return RedirectResponse(url="/login")
+
+    TEST_MODE = not TEST_MODE
+    set_key(ENV_FILE, "IMAP_TEST_MODE", "true" if TEST_MODE else "false")
+    return {"test_mode": TEST_MODE}
+
+@app.post("/toggle_scheduler", response_class=JSONResponse)
+async def toggle_scheduler(request: Request):
+    global SCHEDULER_ENABLED
+    if "user" not in request.session:
+        return RedirectResponse(url="/login")
+
+    SCHEDULER_ENABLED = not SCHEDULER_ENABLED
+    set_key(ENV_FILE, "SCHEDULER_ENABLED", "true" if SCHEDULER_ENABLED else "false")
+    return {"scheduler": SCHEDULER_ENABLED}
 
 # ============================================
 
