@@ -4,11 +4,16 @@ FROM python:3.12-slim
 # Create appuser
 RUN useradd -ms /bin/bash appuser
 
-# Install system dependencies
+# Install system dependencies + debug tools
 RUN apt-get update && apt-get install -y \
     supervisor \
     sqlite3 \
     curl \
+    iputils-ping \
+    dnsutils \
+    netcat-traditional \
+    telnet \
+    openssl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install supercronic (lightweight cron for containers)
