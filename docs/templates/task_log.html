@@ -5,9 +5,12 @@
     <title>{{ task_name }} - Live Log</title>
     <link rel="stylesheet" href="/static/style.css">
     <style>
-        #logPanel {
+        .task-buttons {
+            margin: 1em 0;
+        }
+        .log-panel {
             border: 1px solid #ccc;
-            background: #000;
+            background: #111;
             color: #0f0;
             padding: 10px;
             height: 400px;
@@ -17,19 +20,19 @@
             margin-top: 1em;
             white-space: pre-wrap;
         }
-        .task-button {
+        .toggle-button {
             padding: 0.5em 1em;
+            border: none;
             font-weight: bold;
             cursor: pointer;
-            border: none;
             margin-right: 10px;
         }
-        .start-btn {
-            background-color: red;
+        .toggle-on {
+            background-color: green;
             color: white;
         }
-        .stop-btn {
-            background-color: green;
+        .toggle-off {
+            background-color: red;
             color: white;
         }
     </style>
@@ -37,68 +40,64 @@
 <body>
     <h1>{{ task_name }} - Live Log</h1>
 
-    <button id="toggleTaskBtn" class="task-button start-btn">▶ Start Task</button>
-    <button onclick="clearLog()">🧹 Clear Log</button>
-    <a href="/" style="margin-left:10px;">🏠 Home</a>
+    <div class="task-buttons">
+        <button id="taskToggleBtn" onclick="toggleTask()" class="toggle-button toggle-off">▶ Start Task</button>
+        <button onclick="clearLog()">🧹 Clear Log</button>
+        <a href="/">🏠 Home</a>
+    </div>
 
-    <div id="logPanel"></div>
+    <div id="logPanel" class="log-panel"></div>
 
     <script>
         let eventSource = null;
         let running = false;
 
         function toggleTask() {
-            if (running) {
-                stopTask();
+            const btn = document.getElementById("taskToggleBtn");
+
+            if (!running) {
+                // --- START task ---
+                clearLog();
+                document.getElementById('logPanel').style.display = 'block';
+
+                const url = "{{ stream_url }}";  // Injected from FastAPI
+                eventSource = new EventSource(url);
+
+                eventSource.onmessage = function(event) {
+                    const panel = document.getElementById('logPanel');
+                    panel.textContent += event.data + "\n";
+                    panel.scrollTop = panel.scrollHeight;
+                };
+
+                eventSource.onerror = function() {
+                    stopStream();
+                };
+
+                running = true;
+                btn.textContent = "⏹ Stop Task";
+                btn.className = "toggle-button toggle-on";
             } else {
-                startTask();
+                // --- STOP task ---
+                stopStream();
+                btn.textContent = "▶ Start Task";
+                btn.className = "toggle-button toggle-off";
             }
         }
 
-        function startTask() {
-            clearLog();
-            running = true;
-            updateButton();
-
-            eventSource = new EventSource("{{ stream_url }}");
-            eventSource.onmessage = function(event) {
-                const panel = document.getElementById('logPanel');
-                panel.textContent += event.data + "\n";
-                panel.scrollTop = panel.scrollHeight;
-            };
-            eventSource.onerror = function() {
-                stopTask();
-            };
-        }
-
-        function stopTask() {
+        function stopStream() {
             if (eventSource) {
                 eventSource.close();
                 eventSource = null;
+                const panel = document.getElementById('logPanel');
+                panel.textContent += "\n--- Task stopped ---\n";
+                panel.scrollTop = panel.scrollHeight;
             }
             running = false;
-            updateButton();
-            const panel = document.getElementById('logPanel');
-            panel.textContent += "\n--- Task stopped ---\n";
-            panel.scrollTop = panel.scrollHeight;
         }
 
         function clearLog() {
             document.getElementById('logPanel').textContent = '';
         }
-
-        function updateButton() {
-            const btn = document.getElementById("toggleTaskBtn");
-            if (running) {
-                btn.textContent = "⏸ Stop Task";
-                btn.className = "task-button stop-btn";
-            } else {
-                btn.textContent = "▶ Start Task";
-                btn.className = "task-button start-btn";
-            }
-        }
-
-        document.getElementById("toggleTaskBtn").onclick = toggleTask;
     </script>
 </body>
 </html>
