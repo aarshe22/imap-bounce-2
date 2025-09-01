@@ -24,6 +24,8 @@ REQUIRED_VARS = [
     "IMAP_FOLDER_TESTPROBLEM", "IMAP_FOLDER_TESTSKIPPED",
     # SMTP
     "SMTP_SERVER", "SMTP_PORT", "SMTP_USER", "SMTP_PASS",
+    # Org info
+    "ORG_NAME", "ORG_EMAIL",
     # WebUI
     "WEBUI_PORT", "SESSION_SECRET", "ADMIN_PASS"
 ]
@@ -108,23 +110,19 @@ async def logout(request: Request):
 # ============================================
 
 def stream_process(command: list[str]):
-    """Generator to stream stdout/stderr lines from a subprocess in real time"""
+    """Generator to stream stdout/stderr lines from a subprocess"""
     process = subprocess.Popen(
-        ["python", "-u"] + command[1:],  # force unbuffered Python
+        command,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
-        bufsize=1
+        bufsize=1  # line-buffered
     )
-    try:
-        for line in iter(process.stdout.readline, ''):
-            # Preserve natural newlines; SSE requires double newline
-            yield f"data: {line}\n\n"
-    finally:
-        process.stdout.close()
-        process.wait()
-        yield f"data: --- Process finished with exit code {process.returncode} ---\n\n"
-
+    for line in iter(process.stdout.readline, ''):
+        yield f"data: {line.rstrip()}\n\n"
+    process.stdout.close()
+    process.wait()
+    yield f"data: --- Process finished with exit code {process.returncode} ---\n\n"
 
 @app.get("/run_bounce_check", response_class=HTMLResponse)
 async def run_bounce_check_page(request: Request):
@@ -132,20 +130,17 @@ async def run_bounce_check_page(request: Request):
         return RedirectResponse(url="/login")
     return templates.TemplateResponse("task_log.html", {"request": request, "task_name": "Bounce Check", "stream_url": "/run_bounce_check_stream"})
 
-
 @app.get("/run_bounce_check_stream")
 async def run_bounce_check_stream(request: Request):
     if "user" not in request.session:
         return RedirectResponse(url="/login")
     return StreamingResponse(stream_process(["python", "/app/process_bounces.py"]), media_type="text/event-stream")
 
-
 @app.get("/run_retry_queue", response_class=HTMLResponse)
 async def run_retry_queue_page(request: Request):
     if "user" not in request.session:
         return RedirectResponse(url="/login")
     return templates.TemplateResponse("task_log.html", {"request": request, "task_name": "Retry Queue", "stream_url": "/run_retry_queue_stream"})
-
 
 @app.get("/run_retry_queue_stream")
 async def run_retry_queue_stream(request: Request):
@@ -163,7 +158,6 @@ async def get_toggles(request: Request):
         return RedirectResponse(url="/login")
     return {"test_mode": TEST_MODE, "scheduler": SCHEDULER_ENABLED}
 
-
 @app.post("/toggle_test_mode", response_class=JSONResponse)
 async def toggle_test_mode(request: Request):
     global TEST_MODE
@@ -173,7 +167,6 @@ async def toggle_test_mode(request: Request):
     TEST_MODE = not TEST_MODE
     set_key(ENV_FILE, "IMAP_TEST_MODE", "true" if TEST_MODE else "false")
     return {"test_mode": TEST_MODE}
-
 
 @app.post("/toggle_scheduler", response_class=JSONResponse)
 async def toggle_scheduler(request: Request):

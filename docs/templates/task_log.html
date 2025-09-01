@@ -6,86 +6,52 @@
     <link rel="stylesheet" href="/static/style.css">
     <style>
         .log-panel {
-            border: 1px solid #ccc;
-            background: #111;
-            color: #0f0;
-            padding: 10px;
-            height: 500px;
-            overflow-y: auto;
-            font-family: monospace;
-            font-size: 13px;
-            margin-top: 1em;
-        }
-        .task-buttons {
-            margin: 1em 0;
-        }
-        .toggle-button {
-            padding: 0.5em 1em;
-            border: none;
-            font-weight: bold;
-            cursor: pointer;
-            margin-right: 10px;
-        }
-        .start-btn {
-            background-color: red;
-            color: white;
-        }
-        .stop-btn {
-            background-color: green;
-            color: white;
-        }
+    border: 1px solid #ccc;
+    background: #111;
+    color: #0f0;
+    padding: 10px;
+    height: 400px;
+    overflow-y: auto;
+    font-family: monospace;
+    font-size: 13px;
+    margin-top: 1em;
+    white-space: pre-wrap; /* 👈 preserve line feeds */
+}
+        .task-buttons { margin: 1em 0; }
     </style>
 </head>
 <body>
-    <h1>{{ task_name }} Log</h1>
+    <h1>{{ task_name }} - Live Log</h1>
 
     <div class="task-buttons">
-        <button id="startStopBtn" class="toggle-button start-btn">▶ Start Task</button>
+        <button onclick="stopTask()">⏸ Stop Task</button>
         <button onclick="clearLog()">🧹 Clear Log</button>
-        <button onclick="window.location.href='/'">🏠 Home</button>
+        <a href="/" style="margin-left:10px;">🏠 Home</a>
     </div>
 
     <div id="logPanel" class="log-panel"></div>
 
     <script>
-        let eventSource = null;
-        const streamUrl = "{{ stream_url }}";
-        const btn = document.getElementById("startStopBtn");
+        let eventSource = new EventSource("{{ stream_url }}");
 
-        btn.onclick = function() {
+        eventSource.onmessage = function(event) {
+    const panel = document.getElementById('logPanel');
+    panel.textContent += event.data + "\n";
+    panel.scrollTop = panel.scrollHeight;
+};
+
+        function stopTask() {
             if (eventSource) {
-                // Stop
                 eventSource.close();
                 eventSource = null;
-                logMessage("--- Task stopped ---");
-                btn.textContent = "▶ Start Task";
-                btn.className = "toggle-button start-btn";
-            } else {
-                // Start
-                eventSource = new EventSource(streamUrl);
-                eventSource.onmessage = function(event) {
-                    logMessage(event.data);
-                };
-                eventSource.onerror = function() {
-                    logMessage("--- Task stopped (error) ---");
-                    eventSource.close();
-                    eventSource = null;
-                    btn.textContent = "▶ Start Task";
-                    btn.className = "toggle-button start-btn";
-                };
-                btn.textContent = "⏹ Stop Task";
-                btn.className = "toggle-button stop-btn";
+                const panel = document.getElementById('logPanel');
+                panel.textContent += "\n--- Task stopped ---\n";
+                panel.scrollTop = panel.scrollHeight;
             }
-        };
-
-        function logMessage(msg) {
-            const panel = document.getElementById("logPanel");
-            panel.textContent += msg + "\n";
-            panel.scrollTop = panel.scrollHeight;
         }
 
         function clearLog() {
-            document.getElementById("logPanel").textContent = '';
+            document.getElementById('logPanel').textContent = '';
         }
     </script>
 </body>
