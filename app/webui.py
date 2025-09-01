@@ -111,10 +111,11 @@ def stream_process(command: list[str]):
     """Generator to stream stdout/stderr lines from a subprocess"""
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     for line in iter(process.stdout.readline, ''):
-        yield f"data: {line.strip()}\n\n"
+        # Don't strip() so we keep natural newlines
+        yield f"data: {line.rstrip()}\n\n"
     process.stdout.close()
     process.wait()
-    yield f"data: Process finished with exit code {process.returncode}\n\n"
+    yield f"data: --- Process finished with exit code {process.returncode} ---\n\n"
 
 @app.get("/run_bounce_check", response_class=HTMLResponse)
 async def run_bounce_check_page(request: Request):

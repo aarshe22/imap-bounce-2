@@ -35,7 +35,7 @@
 
         eventSource.onmessage = function(event) {
             const panel = document.getElementById('logPanel');
-            panel.textContent += event.data + "\n";
+            panel.textContent += event.data + "\n";   // already has \n\n from SSE, no strip
             panel.scrollTop = panel.scrollHeight;
         };
 
