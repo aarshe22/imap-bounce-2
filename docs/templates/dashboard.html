@@ -4,49 +4,33 @@
     <meta charset="UTF-8">
     <title>IMAP Bounce Processor - Dashboard</title>
     <link rel="stylesheet" href="/static/style.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         .task-buttons {
             margin: 1em 0;
         }
-        .log-panel {
-            display: none;
-            border: 1px solid #ccc;
-            background: #111;
-            color: #0f0;
-            padding: 10px;
-            height: 400px;
-            overflow-y: auto;
-            font-family: monospace;
-            font-size: 13px;
-            margin-top: 1em;
+        .toggle-button {
+            padding: 0.5em 1em;
+            border: none;
+            font-weight: bold;
+            cursor: pointer;
+            margin-right: 10px;
         }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 1em;
+        .toggle-on {
+            background-color: green;
+            color: white;
         }
-        th, td {
-            padding: 8px;
-            border: 1px solid #ddd;
+        .toggle-off {
+            background-color: red;
+            color: white;
         }
-        tr:nth-child(even) {
-            background: #f9f9f9;
-        }
-        tr:nth-child(odd) {
-            background: #fff;
-        }
-        th {
-            background: #eee;
-        }
-        .pagination {
-            margin: 10px 0;
+        .stats-container {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
+            gap: 2em;
+            margin-top: 1em;
         }
-        #domainChartContainer {
-            margin-top: 2em;
+        #domainChart {
+            width: 400px;
+            height: 400px;
         }
     </style>
 </head>
@@ -64,189 +48,88 @@
     <div class="task-buttons">
         <button onclick="startTask('bounce')">▶ Run Bounce Check</button>
         <button onclick="startTask('retry')">▶ Run Retry Queue</button>
-        <button onclick="stopTask()">⏸ Stop Task</button>
-        <button onclick="clearLog()">🧹 Clear Log</button>
+        <button id="testModeBtn" class="toggle-button">Test Mode</button>
+        <button id="schedulerBtn" class="toggle-button">Scheduler</button>
     </div>
 
-    <!-- Activity Log Table -->
-    <div class="card">
-        <div class="pagination">
-            <div>
-                <button onclick="prevPage()">Prev</button>
-                <button onclick="nextPage()">Next</button>
-            </div>
-            <div>
-                Page <span id="page-number">1</span> of <span id="total-pages">1</span>
-            </div>
-            <div>
-                Show
-                <select id="per-page" onchange="changePerPage()">
-                    <option value="10">10</option>
-                    <option value="20" selected>20</option>
-                    <option value="50">50</option>
-                    <option value="100">100</option>
-                </select>
-                entries
-            </div>
+    <div class="stats-container">
+        <div>
+            <h3>Recent Bounces</h3>
+            <table border="1" cellpadding="5" cellspacing="0">
+                <thead>
+                    <tr><th>Date</th><th>To</th><th>Status</th><th>Reason</th><th>Domain</th></tr>
+                </thead>
+                <tbody id="bounceTableBody"></tbody>
+            </table>
         </div>
-
-        <table id="log-table">
-            <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>To</th>
-                    <th>Status</th>
-                    <th>Reason</th>
-                    <th>Domain</th>
-                </tr>
-            </thead>
-            <tbody></tbody>
-        </table>
+        <div>
+            <h3>Top Domains</h3>
+            <canvas id="domainChart"></canvas>
+        </div>
     </div>
-
-    <!-- Pie Chart -->
-    <div id="domainChartContainer">
-        <h2>Top Bounce Domains</h2>
-        <canvas id="domainChart" width="400" height="200"></canvas>
-    </div>
-
-    <!-- Live task execution panel -->
-    <div id="logPanel" class="log-panel"></div>
 
     <a href="/logout">Logout</a>
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
-        let eventSource;
-        let currentPage = 1;
-        let totalPages = 1;
-        let perPage = 20;
-        let domainChart;
-
-        // ==========================
-        // Task execution streaming
-        // ==========================
+        // -------- Task handling --------
         function startTask(task) {
-            stopTask(); // stop any running stream first
-            clearLog();
-            document.getElementById('logPanel').style.display = 'block';
-
-            let url = task === 'bounce' ? '/run_bounce_check_stream' : '/run_retry_queue_stream';
-            eventSource = new EventSource(url);
-
-            eventSource.onmessage = function(event) {
-                const panel = document.getElementById('logPanel');
-                panel.textContent += event.data + "\n";
-                panel.scrollTop = panel.scrollHeight;
-            };
-
-            eventSource.onerror = function() {
-                stopTask();
-            };
+            let url = task === 'bounce' ? '/run_bounce_check' : '/run_retry_queue';
+            window.location.href = url;
         }
 
-        function stopTask() {
-            if (eventSource) {
-                eventSource.close();
-                eventSource = null;
-                const panel = document.getElementById('logPanel');
-                panel.textContent += "\n--- Task stopped ---\n";
-                panel.scrollTop = panel.scrollHeight;
-            }
+        // -------- Toggles --------
+        async function updateToggles() {
+            let res = await fetch("/get_toggles");
+            let data = await res.json();
+
+            let testBtn = document.getElementById("testModeBtn");
+            testBtn.className = "toggle-button " + (data.test_mode ? "toggle-on" : "toggle-off");
+            testBtn.innerText = "Test Mode: " + (data.test_mode ? "ON" : "OFF");
+
+            let schedBtn = document.getElementById("schedulerBtn");
+            schedBtn.className = "toggle-button " + (data.scheduler ? "toggle-on" : "toggle-off");
+            schedBtn.innerText = "Scheduler: " + (data.scheduler ? "ENABLED" : "DISABLED");
         }
 
-        function clearLog() {
-            document.getElementById('logPanel').textContent = '';
-        }
+        document.getElementById("testModeBtn").onclick = async () => {
+            await fetch("/toggle_test_mode", {method:"POST"});
+            updateToggles();
+        };
+        document.getElementById("schedulerBtn").onclick = async () => {
+            await fetch("/toggle_scheduler", {method:"POST"});
+            updateToggles();
+        };
 
-        // ==========================
-        // Bounce Log Pagination
-        // ==========================
-        async function loadLogs() {
-            const resp = await fetch(`/api/logs?page=${currentPage}&per_page=${perPage}`);
-            const data = await resp.json();
-
-            const tbody = document.querySelector("#log-table tbody");
+        // -------- Stats table + chart --------
+        async function loadStats() {
+            let res = await fetch("/api/logs");
+            let logs = await res.json();
+            let tbody = document.getElementById("bounceTableBody");
             tbody.innerHTML = "";
-            data.data.forEach(row => {
-                const tr = document.createElement("tr");
-                tr.innerHTML = `
-                  <td>${row.date || ""}</td>
-                  <td>${row.email_to || ""}</td>
-                  <td>${row.status || ""}</td>
-                  <td>${row.reason || ""}</td>
-                  <td>${row.domain || ""}</td>
-                `;
+            logs.data.slice(0,10).forEach(row => {
+                let tr = document.createElement("tr");
+                tr.innerHTML = `<td>${row.date}</td><td>${row.email_to}</td><td>${row.status}</td><td>${row.reason}</td><td>${row.domain}</td>`;
                 tbody.appendChild(tr);
             });
 
-            document.getElementById("page-number").textContent = data.page;
-            document.getElementById("total-pages").textContent = data.total_pages;
-
-            currentPage = data.page;
-            totalPages = data.total_pages;
-        }
-
-        function prevPage() {
-            if (currentPage > 1) {
-                currentPage--;
-                loadLogs();
-            }
-        }
-
-        function nextPage() {
-            if (currentPage < totalPages) {
-                currentPage++;
-                loadLogs();
-            }
-        }
-
-        function changePerPage() {
-            perPage = parseInt(document.getElementById("per-page").value);
-            currentPage = 1;
-            loadLogs();
-        }
-
-        // ==========================
-        // Domain Pie Chart
-        // ==========================
-        async function loadDomainStats() {
-            const resp = await fetch("/api/domain_stats");
-            const data = await resp.json();
-
-            const labels = data.data.map(row => row.domain);
-            const counts = data.data.map(row => row.count);
-
-            if (domainChart) {
-                domainChart.destroy();
-            }
-
-            const ctx = document.getElementById("domainChart").getContext("2d");
-            domainChart = new Chart(ctx, {
-                type: "pie",
+            let domRes = await fetch("/api/domain_stats");
+            let domStats = await domRes.json();
+            let ctx = document.getElementById("domainChart").getContext("2d");
+            new Chart(ctx, {
+                type: 'pie',
                 data: {
-                    labels: labels,
+                    labels: domStats.data.map(r => r.domain),
                     datasets: [{
-                        data: counts,
-                        backgroundColor: [
-                            "#007bff", "#28a745", "#dc3545", "#ffc107", "#17a2b8",
-                            "#6f42c1", "#fd7e14", "#20c997", "#e83e8c", "#6610f2"
-                        ],
+                        data: domStats.data.map(r => r.count),
+                        backgroundColor: ['#0072CE','#DA291C','#54585A','#2ECC71','#F39C12']
                     }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        legend: { position: "right" }
-                    }
                 }
             });
         }
 
-        // Initial load + refresh every 30s
-        loadLogs();
-        loadDomainStats();
-        setInterval(loadLogs, 30000);
-        setInterval(loadDomainStats, 60000);
+        updateToggles();
+        loadStats();
     </script>
 </body>
 </html>

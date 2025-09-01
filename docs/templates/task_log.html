@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>{{ task_name }} - Live Logs</title>
+    <title>{{ task_name }} - Live Log</title>
     <link rel="stylesheet" href="/static/style.css">
     <style>
         .log-panel {
@@ -14,26 +14,21 @@
             overflow-y: auto;
             font-family: monospace;
             font-size: 13px;
+            margin-top: 1em;
         }
-        .task-buttons {
-            margin: 1em 0;
-        }
+        .task-buttons { margin: 1em 0; }
     </style>
 </head>
 <body>
-    <h1>{{ task_name }} - Live Log Output</h1>
+    <h1>{{ task_name }} - Live Log</h1>
 
     <div class="task-buttons">
         <button onclick="stopTask()">⏸ Stop Task</button>
         <button onclick="clearLog()">🧹 Clear Log</button>
+        <a href="/" style="margin-left:10px;">🏠 Home</a>
     </div>
 
     <div id="logPanel" class="log-panel"></div>
-
-    <p>
-        <a href="/">🏠 Back to Dashboard</a> |
-        <a href="/logout">Logout</a>
-    </p>
 
     <script>
         let eventSource = new EventSource("{{ stream_url }}");
@@ -42,10 +37,6 @@
             const panel = document.getElementById('logPanel');
             panel.textContent += event.data + "\n";
             panel.scrollTop = panel.scrollHeight;
-        };
-
-        eventSource.onerror = function() {
-            stopTask();
         };
 
         function stopTask() {
