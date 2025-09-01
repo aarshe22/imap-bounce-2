@@ -7,7 +7,9 @@ from dotenv import load_dotenv
 from db import insert_bounce, init_db
 from bounce_rules import classify_bounce
 
+# ============================================
 # Load environment variables
+# ============================================
 load_dotenv("data/.env")
 
 # IMAP Settings
@@ -39,9 +41,13 @@ SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
 
 # Notifications
-NOTIFY_CC = os.getenv("NOTIFY_CC", "").split(",")
-NOTIFY_CC_TEST = os.getenv("NOTIFY_CC_TEST", "").split(",")
+NOTIFY_CC = [addr.strip() for addr in os.getenv("NOTIFY_CC", "").split(",") if addr.strip()]
+NOTIFY_CC_TEST = [addr.strip() for addr in os.getenv("NOTIFY_CC_TEST", "").split(",") if addr.strip()]
 
+
+# ============================================
+# Helpers
+# ============================================
 
 def connect_imap():
     """Establish IMAP connection with SSL or STARTTLS"""
@@ -64,11 +70,17 @@ def move_message(mail, num, folder):
         print(f"Failed to move message {num} → {folder}: {e}")
 
 
+# ============================================
+# Main Processing
+# ============================================
+
 def process_mailbox():
     """Connect to IMAP and process bounce emails"""
     init_db()
     try:
         mail = connect_imap()
+
+        # Pick correct folders based on mode
         inbox = IMAP_FOLDER_TEST if IMAP_TEST_MODE else IMAP_FOLDER_INBOX
         processed = IMAP_FOLDER_TESTPROCESSED if IMAP_TEST_MODE else IMAP_FOLDER_PROCESSED
         problem = IMAP_FOLDER_TESTPROBLEM if IMAP_TEST_MODE else IMAP_FOLDER_PROBLEM
@@ -89,12 +101,13 @@ def process_mailbox():
             raw_email = msg_data[0][1]
             msg = email.message_from_bytes(raw_email)
 
-            # Extract
+            # Extract headers
             msg_to = msg.get("To", "")
             msg_cc = msg.get("Cc", "")
             subject = msg.get("Subject", "")
             body = ""
 
+            # Extract body text
             if msg.is_multipart():
                 for part in msg.walk():
                     if part.get_content_type() == "text/plain":
@@ -112,15 +125,16 @@ def process_mailbox():
             # Classify bounce
             status, reason, domain = classify_bounce(msg)
 
-            # Save
+            # Save to DB
             insert_bounce(msg_to, msg_cc, status, reason, domain)
 
-            # Notify
+            # Determine notification recipients
             if IMAP_TEST_MODE:
                 notify_emails = NOTIFY_CC_TEST
             else:
-                notify_emails = [*NOTIFY_CC, *msg_cc.split(",") if msg_cc else []]
+                notify_emails = [*NOTIFY_CC, *(msg_cc.split(",") if msg_cc else [])]
 
+            # Send notification
             if notify_emails:
                 send_notification(subject, msg_to, msg_cc, status, reason, notify_emails)
 
@@ -139,8 +153,12 @@ def process_mailbox():
         print("Error processing mailbox:", str(e))
 
 
+# ============================================
+# Notifications
+# ============================================
+
 def send_notification(subject, to_addr, cc_addr, status, reason, notify_emails):
-    """Send bounce notification email"""
+    """Send bounce notification email via SMTP relay"""
     msg = MIMEText(
         f"Bounce detected\n\nTo: {to_addr}\nCc: {cc_addr}\nStatus: {status}\nReason: {reason}"
     )
@@ -158,6 +176,10 @@ def send_notification(subject, to_addr, cc_addr, status, reason, notify_emails):
     except Exception as e:
         print("Error sending notification:", str(e))
 
+
+# ============================================
+# Entrypoint
+# ============================================
 
 if __name__ == "__main__":
     process_mailbox()
