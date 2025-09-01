@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ task_name }} - Live Logs</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    body { font-family: monospace; background: #111; color: #eee; margin: 0; }
+    header { background: #222; padding: 10px; }
+    header a { color: #fff; margin-right: 15px; text-decoration: none; }
+    #log {
+      background: #000;
+      padding: 10px;
+      margin: 0;
+      height: 85vh;
+      overflow-y: scroll;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="/">🏠 Home</a>
+    <a href="/run_bounce_check">📨 Run Bounce Check</a>
+    <a href="/run_retry_queue">🔁 Run Retry Queue</a>
+    <a href="/logout">🚪 Logout</a>
+  </header>
+  <h2 style="padding:10px;">{{ task_name }} - Live Logs</h2>
+  <pre id="log"></pre>
+
+  <script>
+    const log = document.getElementById("log");
+    const eventSource = new EventSource("{{ stream_url }}");
+    eventSource.onmessage = function(event) {
+      log.textContent += event.data + "\\n";
+      log.scrollTop = log.scrollHeight;
+    };
+    eventSource.onerror = function() {
+      log.textContent += "\\n[Stream closed]\\n";
+      eventSource.close();
+    };
+  </script>
+</body>
+</html>

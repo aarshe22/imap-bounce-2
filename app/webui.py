@@ -1,11 +1,12 @@
 import os
+import subprocess
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from dotenv import load_dotenv
-from db import query_bounces, count_bounces, init_db
+from db import query_bounces, count_bounces
 
 # ============================================
 # Load environment and validate
@@ -38,11 +39,6 @@ ADMIN_PASS = os.getenv("ADMIN_PASS", "changeme")
 app = FastAPI(title="IMAP Bounce Processor")
 
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET)
-
-# Run init_db at startup so table always exists
-@app.on_event("startup")
-def startup_event():
-    init_db()
 
 # Static + templates
 app.mount("/static", StaticFiles(directory="docs/static"), name="static")
@@ -102,6 +98,44 @@ async def logout(request: Request):
     request.session.clear()
     return RedirectResponse(url="/login")
 
+# ============================================
+# Manual task execution with live streaming
+# ============================================
+
+def stream_process(command: list[str]):
+    """Generator to stream stdout/stderr lines from a subprocess"""
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    for line in iter(process.stdout.readline, ''):
+        yield f"data: {line.strip()}\n\n"
+    process.stdout.close()
+    process.wait()
+    yield f"data: Process finished with exit code {process.returncode}\n\n"
+
+@app.get("/run_bounce_check", response_class=HTMLResponse)
+async def run_bounce_check_page(request: Request):
+    if "user" not in request.session:
+        return RedirectResponse(url="/login")
+    return templates.TemplateResponse("task_log.html", {"request": request, "task_name": "Bounce Check", "stream_url": "/run_bounce_check_stream"})
+
+@app.get("/run_bounce_check_stream")
+async def run_bounce_check_stream(request: Request):
+    if "user" not in request.session:
+        return RedirectResponse(url="/login")
+    return StreamingResponse(stream_process(["python", "/app/process_bounces.py"]), media_type="text/event-stream")
+
+@app.get("/run_retry_queue", response_class=HTMLResponse)
+async def run_retry_queue_page(request: Request):
+    if "user" not in request.session:
+        return RedirectResponse(url="/login")
+    return templates.TemplateResponse("task_log.html", {"request": request, "task_name": "Retry Queue", "stream_url": "/run_retry_queue_stream"})
+
+@app.get("/run_retry_queue_stream")
+async def run_retry_queue_stream(request: Request):
+    if "user" not in request.session:
+        return RedirectResponse(url="/login")
+    return StreamingResponse(stream_process(["python", "/app/retry_queue.py"]), media_type="text/event-stream")
+
+# ============================================
 
 if __name__ == "__main__":
     import uvicorn

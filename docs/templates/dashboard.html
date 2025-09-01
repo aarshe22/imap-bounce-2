@@ -2,54 +2,77 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>IMAP Bounce Dashboard</title>
+  <title>IMAP Bounce Processor - Dashboard</title>
   <link rel="stylesheet" href="/static/style.css">
   <style>
-    body { font-family: system-ui, sans-serif; margin: 0; background: #f7f9fc; color: #222; }
-    header { background: #1e293b; color: #fff; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
-    h1 { margin: 0; font-size: 1.5rem; }
-    .btn { background: #3b82f6; color: #fff; padding: 0.5rem 1rem; border-radius: 4px; text-decoration: none; }
-    .btn:hover { background: #2563eb; }
-    main { padding: 2rem; }
-    .card { background: #fff; border-radius: 8px; padding: 1.5rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 2rem; }
-    .stat { font-size: 2rem; font-weight: bold; }
-    .banner { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; padding: 1rem; border-radius: 6px; margin-bottom: 1.5rem; }
-    .banner h2 { margin: 0 0 0.5rem 0; font-size: 1.2rem; }
-    .banner ul { margin: 0; padding-left: 1.2rem; }
-    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 6px; overflow: hidden; }
-    th, td { padding: 0.75rem 1rem; text-align: left; }
-    th { background: #f1f5f9; font-weight: 600; }
-    tr:nth-child(even) { background: #f9fafb; }
+    body { font-family: Arial, sans-serif; margin: 0; background: #f5f5f5; }
+    header {
+      background: #222;
+      padding: 10px;
+      color: #fff;
+    }
+    header a {
+      color: #fff;
+      margin-right: 15px;
+      text-decoration: none;
+    }
+    .container {
+      padding: 20px;
+    }
+    .card {
+      background: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    .missing-vars {
+      background: #ffdddd;
+      padding: 10px;
+      border-radius: 5px;
+      margin-top: 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    th, td {
+      padding: 8px;
+      border-bottom: 1px solid #ddd;
+      text-align: left;
+    }
+    th { background: #eee; }
   </style>
 </head>
 <body>
   <header>
-    <h1>IMAP Bounce Dashboard</h1>
-    <a class="btn" href="/logout">Logout</a>
+    <a href="/">🏠 Home</a>
+    <a href="/run_bounce_check">📨 Run Bounce Check</a>
+    <a href="/run_retry_queue">🔁 Run Retry Queue</a>
+    <a href="/logout">🚪 Logout</a>
   </header>
 
-  <main>
-    {% if missing_vars and missing_vars|length > 0 %}
-    <div class="banner">
-      <h2>⚠️ Missing Configuration</h2>
-      <p>The following environment variables are missing from <code>data/.env</code>:</p>
-      <ul>
-        {% for var in missing_vars %}
+  <div class="container">
+    <div class="card">
+      <h2>Dashboard</h2>
+      <p><strong>Total Bounces:</strong> {{ bounce_count }}</p>
+
+      {% if missing_vars %}
+      <div class="missing-vars">
+        <strong>⚠ Missing Environment Variables:</strong>
+        <ul>
+          {% for var in missing_vars %}
           <li>{{ var }}</li>
-        {% endfor %}
-      </ul>
-      <p>Please update <code>data/.env</code> and restart the service.</p>
-    </div>
-    {% endif %}
-
-    <div class="card">
-      <h2>Total Bounces</h2>
-      <div class="stat">{{ bounce_count }}</div>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
     </div>
 
     <div class="card">
-      <h2>Recent Logs</h2>
-      <table>
+      <h3>Recent Logs</h3>
+      <table id="logs-table">
         <thead>
           <tr>
             <th>ID</th>
@@ -61,31 +84,30 @@
             <th>Domain</th>
           </tr>
         </thead>
-        <tbody id="logs-body">
-          <!-- Populated via fetch -->
-        </tbody>
+        <tbody></tbody>
       </table>
     </div>
-  </main>
+  </div>
 
   <script>
     async function loadLogs() {
-      const res = await fetch('/api/logs');
+      const res = await fetch("/api/logs");
       if (!res.ok) return;
       const data = await res.json();
-      const body = document.getElementById('logs-body');
-      body.innerHTML = '';
+      const tbody = document.querySelector("#logs-table tbody");
+      tbody.innerHTML = "";
       data.data.forEach(row => {
-        body.innerHTML += `
-          <tr>
-            <td>${row.id || ''}</td>
-            <td>${row.date || ''}</td>
-            <td>${row.email_to || ''}</td>
-            <td>${row.email_cc || ''}</td>
-            <td>${row.status || ''}</td>
-            <td>${row.reason || ''}</td>
-            <td>${row.domain || ''}</td>
-          </tr>`;
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${row.id}</td>
+          <td>${row.date}</td>
+          <td>${row.email_to}</td>
+          <td>${row.email_cc}</td>
+          <td>${row.status}</td>
+          <td>${row.reason}</td>
+          <td>${row.domain}</td>
+        `;
+        tbody.appendChild(tr);
       });
     }
     loadLogs();
