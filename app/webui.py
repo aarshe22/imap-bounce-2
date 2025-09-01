@@ -73,16 +73,29 @@ async def dashboard(request: Request):
         "missing_vars": missing_vars
     })
 
-
 @app.get("/api/logs", response_class=JSONResponse)
-async def api_logs(request: Request):
+async def api_logs(request: Request, page: int = 1, per_page: int = 20):
     if "user" not in request.session:
         return RedirectResponse(url="/login")
 
     params = dict(request.query_params)
     rows = query_bounces(params)
-    return {"data": rows, "recordsTotal": len(rows), "recordsFiltered": len(rows)}
 
+    # Sort newest first
+    rows = sorted(rows, key=lambda r: r.get("date", ""), reverse=True)
+
+    total = len(rows)
+    start = (page - 1) * per_page
+    end = start + per_page
+    page_data = rows[start:end]
+
+    return {
+        "data": page_data,
+        "recordsTotal": total,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": (total + per_page - 1) // per_page
+    }
 
 @app.get("/api/domain_stats", response_class=JSONResponse)
 async def api_domain_stats(request: Request):
