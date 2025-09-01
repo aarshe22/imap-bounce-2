@@ -109,9 +109,14 @@ async def logout(request: Request):
 
 def stream_process(command: list[str]):
     """Generator to stream stdout/stderr lines from a subprocess"""
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1  # line-buffered
+    )
     for line in iter(process.stdout.readline, ''):
-        # Don't strip() so we keep natural newlines
         yield f"data: {line.rstrip()}\n\n"
     process.stdout.close()
     process.wait()

@@ -6,16 +6,17 @@
     <link rel="stylesheet" href="/static/style.css">
     <style>
         .log-panel {
-            border: 1px solid #ccc;
-            background: #111;
-            color: #0f0;
-            padding: 10px;
-            height: 500px;
-            overflow-y: auto;
-            font-family: monospace;
-            font-size: 13px;
-            margin-top: 1em;
-        }
+    border: 1px solid #ccc;
+    background: #111;
+    color: #0f0;
+    padding: 10px;
+    height: 400px;
+    overflow-y: auto;
+    font-family: monospace;
+    font-size: 13px;
+    margin-top: 1em;
+    white-space: pre-wrap; /* 👈 preserve line feeds */
+}
         .task-buttons { margin: 1em 0; }
     </style>
 </head>
@@ -34,10 +35,10 @@
         let eventSource = new EventSource("{{ stream_url }}");
 
         eventSource.onmessage = function(event) {
-            const panel = document.getElementById('logPanel');
-            panel.textContent += event.data + "\n";   // already has \n\n from SSE, no strip
-            panel.scrollTop = panel.scrollHeight;
-        };
+    const panel = document.getElementById('logPanel');
+    panel.textContent += event.data + "\n";
+    panel.scrollTop = panel.scrollHeight;
+};
 
         function stopTask() {
             if (eventSource) {
