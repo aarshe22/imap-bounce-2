@@ -3,8 +3,10 @@ import imaplib
 import email
 import smtplib
 import logging
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from dotenv import load_dotenv
+from jinja2 import Environment, FileSystemLoader
 from db import insert_bounce, init_db
 from bounce_rules import classify_bounce
 
@@ -18,6 +20,27 @@ logging.basicConfig(
 logger = logging.getLogger("process_bounces")
 
 ENV_FILE = "data/.env"
+
+# Jinja2 template environment
+TEMPLATE_ENV = Environment(loader=FileSystemLoader("docs/templates"))
+
+# SMTP status code → description map
+SMTP_DESCRIPTIONS = {
+    "421": "Service not available, try again later (often temporary)",
+    "450": "Mailbox unavailable (server busy or mailbox locked)",
+    "451": "Requested action aborted – local error in processing",
+    "452": "Insufficient system storage – mailbox is full",
+    "500": "Syntax error, command unrecognized",
+    "501": "Syntax error in parameters or arguments",
+    "502": "Command not implemented by this server",
+    "503": "Bad sequence of commands",
+    "504": "Command parameter not implemented",
+    "550": "Mailbox unavailable – recipient address rejected",
+    "551": "User not local – please try forwarding",
+    "552": "Exceeded storage allocation – mailbox is full",
+    "553": "Mailbox name not allowed – invalid syntax or format",
+    "554": "Transaction failed – message rejected as spam or blocked"
+}
 
 
 def load_config():
@@ -56,6 +79,11 @@ def load_config():
         # Notifications
         "NOTIFY_CC": [e.strip() for e in os.getenv("NOTIFY_CC", "").split(",") if e.strip()],
         "NOTIFY_CC_TEST": [e.strip() for e in os.getenv("NOTIFY_CC_TEST", "").split(",") if e.strip()],
+
+        # Org info
+        "ORG_NAME": os.getenv("ORG_NAME", "Support Team"),
+        "ORG_EMAIL": os.getenv("ORG_EMAIL", "support@example.com"),
+        "ORG_LOGO_URL": os.getenv("ORG_LOGO_URL", "")
     }
     return config
 
@@ -141,7 +169,7 @@ def process_mailbox():
                 notified_to = [e.strip() for e in msg_cc.split(",") if e.strip()]
                 notified_cc = config["NOTIFY_CC"]
 
-            # Save into DB with notified recipients
+            # Save into DB
             insert_bounce(msg_to, msg_cc, status, reason, domain,
                           notified_to=",".join(notified_to),
                           notified_cc=",".join(notified_cc))
@@ -166,20 +194,36 @@ def process_mailbox():
 
 
 def send_notification(config, subject, to_addr, cc_addr, status, reason, notified_to, notified_cc):
-    """Send bounce notification email"""
-    msg = MIMEText(
-        f"Bounce detected\n\n"
-        f"Original To: {to_addr}\n"
-        f"Original Cc: {cc_addr}\n"
-        f"Status: {status}\n"
-        f"Reason: {reason}"
-    )
+    """Send bounce notification email (multipart text+html via templates)"""
+
+    smtp_description = SMTP_DESCRIPTIONS.get(str(status), "Unrecognized SMTP status code")
+
+    context = {
+        "org_name": config["ORG_NAME"],
+        "org_email": config["ORG_EMAIL"],
+        "org_logo_url": config["ORG_LOGO_URL"],
+        "bounced_email": to_addr,
+        "original_cc": cc_addr,
+        "smtp_status": status,
+        "smtp_reason": reason,
+        "smtp_description": smtp_description
+    }
+
+    # Render templates
+    text_body = TEMPLATE_ENV.get_template("email_notification.txt").render(context)
+    html_body = TEMPLATE_ENV.get_template("email_notification.html").render(context)
+
+    # Multipart message
+    msg = MIMEMultipart("alternative")
     msg["Subject"] = f"Bounce Notification: {status}"
-    msg["From"] = config["IMAP_USER"]
+    msg["From"] = f"{config['ORG_NAME']} <{config['ORG_EMAIL']}>"
     if notified_to:
         msg["To"] = ", ".join(notified_to)
     if notified_cc:
         msg["Cc"] = ", ".join(notified_cc)
+
+    msg.attach(MIMEText(text_body, "plain"))
+    msg.attach(MIMEText(html_body, "html"))
 
     all_recipients = notified_to + notified_cc
 
@@ -189,7 +233,7 @@ def send_notification(config, subject, to_addr, cc_addr, status, reason, notifie
                 server.starttls()
                 server.login(config["SMTP_USER"], config["SMTP_PASS"])
             logger.debug(f"[DEBUG] Sending notification → {all_recipients}")
-            server.sendmail(config["IMAP_USER"], all_recipients, msg.as_string())
+            server.sendmail(config["ORG_EMAIL"], all_recipients, msg.as_string())
         print(f"Sent notification to {all_recipients}")
     except Exception as e:
         logger.error("Error sending notification: %s", str(e))

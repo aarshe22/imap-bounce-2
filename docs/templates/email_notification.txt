@@ -2,11 +2,12 @@ Hi,
 
 {{ org_name }} attempted to send an email to {{ bounced_email }}.
 
-The email address might be misspelled, invalid, or is rejecting delivery.
-Please update {{ org_name }} before resending.
+The email address may be misspelled, invalid, or not allowing delivery — please update your records before resending.
 
-Reason: {{ smtp_status }} - {{ smtp_reason }}
-Details: {{ smtp_description }}
+Reason: {{ smtp_reason }}
+SMTP Status: {{ smtp_status }} - {{ smtp_description }}
+
+Original Cc: {{ original_cc if original_cc else "None" }}
 
 Thank you,
 {{ org_name }} ({{ org_email }})
