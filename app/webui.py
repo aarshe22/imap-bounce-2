@@ -103,8 +103,19 @@ async def logout(request: Request):
 # ============================================
 
 def stream_process(command: list[str]):
-    """Generator to stream stdout/stderr lines from a subprocess"""
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    """Generator to stream stdout/stderr lines from a subprocess.
+       Forces DEBUG=true in environment when launched manually from WebUI.
+    """
+    env = os.environ.copy()
+    env["DEBUG"] = "true"
+
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        env=env
+    )
     for line in iter(process.stdout.readline, ''):
         yield f"data: {line.strip()}\n\n"
     process.stdout.close()
@@ -115,25 +126,39 @@ def stream_process(command: list[str]):
 async def run_bounce_check_page(request: Request):
     if "user" not in request.session:
         return RedirectResponse(url="/login")
-    return templates.TemplateResponse("task_log.html", {"request": request, "task_name": "Bounce Check", "stream_url": "/run_bounce_check_stream"})
+    return templates.TemplateResponse("task_log.html", {
+        "request": request,
+        "task_name": "Bounce Check",
+        "stream_url": "/run_bounce_check_stream"
+    })
 
 @app.get("/run_bounce_check_stream")
 async def run_bounce_check_stream(request: Request):
     if "user" not in request.session:
         return RedirectResponse(url="/login")
-    return StreamingResponse(stream_process(["python", "/app/process_bounces.py"]), media_type="text/event-stream")
+    return StreamingResponse(
+        stream_process(["python", "/app/process_bounces.py"]),
+        media_type="text/event-stream"
+    )
 
 @app.get("/run_retry_queue", response_class=HTMLResponse)
 async def run_retry_queue_page(request: Request):
     if "user" not in request.session:
         return RedirectResponse(url="/login")
-    return templates.TemplateResponse("task_log.html", {"request": request, "task_name": "Retry Queue", "stream_url": "/run_retry_queue_stream"})
+    return templates.TemplateResponse("task_log.html", {
+        "request": request,
+        "task_name": "Retry Queue",
+        "stream_url": "/run_retry_queue_stream"
+    })
 
 @app.get("/run_retry_queue_stream")
 async def run_retry_queue_stream(request: Request):
     if "user" not in request.session:
         return RedirectResponse(url="/login")
-    return StreamingResponse(stream_process(["python", "/app/retry_queue.py"]), media_type="text/event-stream")
+    return StreamingResponse(
+        stream_process(["python", "/app/retry_queue.py"]),
+        media_type="text/event-stream"
+    )
 
 # ============================================
 

@@ -1,116 +1,84 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <title>IMAP Bounce Processor - Dashboard</title>
-  <link rel="stylesheet" href="/static/style.css">
-  <style>
-    body { font-family: Arial, sans-serif; margin: 0; background: #f5f5f5; }
-    header {
-      background: #222;
-      padding: 10px;
-      color: #fff;
-    }
-    header a {
-      color: #fff;
-      margin-right: 15px;
-      text-decoration: none;
-    }
-    .container {
-      padding: 20px;
-    }
-    .card {
-      background: #fff;
-      padding: 20px;
-      border-radius: 8px;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-      margin-bottom: 20px;
-    }
-    .missing-vars {
-      background: #ffdddd;
-      padding: 10px;
-      border-radius: 5px;
-      margin-top: 10px;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 20px;
-    }
-    th, td {
-      padding: 8px;
-      border-bottom: 1px solid #ddd;
-      text-align: left;
-    }
-    th { background: #eee; }
-  </style>
+    <meta charset="UTF-8">
+    <title>IMAP Bounce Processor - Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .task-buttons {
+            margin: 1em 0;
+        }
+        .log-panel {
+            display: none;
+            border: 1px solid #ccc;
+            background: #111;
+            color: #0f0;
+            padding: 10px;
+            height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 13px;
+            margin-top: 1em;
+        }
+    </style>
 </head>
 <body>
-  <header>
-    <a href="/">🏠 Home</a>
-    <a href="/run_bounce_check">📨 Run Bounce Check</a>
-    <a href="/run_retry_queue">🔁 Run Retry Queue</a>
-    <a href="/logout">🚪 Logout</a>
-  </header>
+    <h1>IMAP Bounce Processor Dashboard</h1>
 
-  <div class="container">
-    <div class="card">
-      <h2>Dashboard</h2>
-      <p><strong>Total Bounces:</strong> {{ bounce_count }}</p>
+    <p>Total Bounces: {{ bounce_count }}</p>
 
-      {% if missing_vars %}
-      <div class="missing-vars">
-        <strong>⚠ Missing Environment Variables:</strong>
-        <ul>
-          {% for var in missing_vars %}
-          <li>{{ var }}</li>
-          {% endfor %}
-        </ul>
-      </div>
-      {% endif %}
+    {% if missing_vars %}
+        <div style="color:red;">
+            <strong>Missing environment variables:</strong> {{ ", ".join(missing_vars) }}
+        </div>
+    {% endif %}
+
+    <div class="task-buttons">
+        <button onclick="startTask('bounce')">▶ Run Bounce Check</button>
+        <button onclick="startTask('retry')">▶ Run Retry Queue</button>
+        <button onclick="stopTask()">⏸ Stop Task</button>
+        <button onclick="clearLog()">🧹 Clear Log</button>
     </div>
 
-    <div class="card">
-      <h3>Recent Logs</h3>
-      <table id="logs-table">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Date</th>
-            <th>To</th>
-            <th>Cc</th>
-            <th>Status</th>
-            <th>Reason</th>
-            <th>Domain</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </div>
+    <div id="logPanel" class="log-panel"></div>
 
-  <script>
-    async function loadLogs() {
-      const res = await fetch("/api/logs");
-      if (!res.ok) return;
-      const data = await res.json();
-      const tbody = document.querySelector("#logs-table tbody");
-      tbody.innerHTML = "";
-      data.data.forEach(row => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>${row.id}</td>
-          <td>${row.date}</td>
-          <td>${row.email_to}</td>
-          <td>${row.email_cc}</td>
-          <td>${row.status}</td>
-          <td>${row.reason}</td>
-          <td>${row.domain}</td>
-        `;
-        tbody.appendChild(tr);
-      });
-    }
-    loadLogs();
-  </script>
+    <a href="/logout">Logout</a>
+
+    <script>
+        let eventSource;
+
+        function startTask(task) {
+            stopTask(); // stop any running stream first
+            clearLog();
+            document.getElementById('logPanel').style.display = 'block';
+
+            let url = task === 'bounce' ? '/run_bounce_check_stream' : '/run_retry_queue_stream';
+            eventSource = new EventSource(url);
+
+            eventSource.onmessage = function(event) {
+                const panel = document.getElementById('logPanel');
+                panel.textContent += event.data + "\n";
+                panel.scrollTop = panel.scrollHeight;
+            };
+
+            eventSource.onerror = function() {
+                stopTask();
+            };
+        }
+
+        function stopTask() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+                const panel = document.getElementById('logPanel');
+                panel.textContent += "\n--- Task stopped ---\n";
+                panel.scrollTop = panel.scrollHeight;
+            }
+        }
+
+        function clearLog() {
+            document.getElementById('logPanel').textContent = '';
+        }
+    </script>
 </body>
 </html>

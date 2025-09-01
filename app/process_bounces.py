@@ -44,13 +44,23 @@ SMTP_PASS = os.getenv("SMTP_PASS", "")
 NOTIFY_CC = [addr.strip() for addr in os.getenv("NOTIFY_CC", "").split(",") if addr.strip()]
 NOTIFY_CC_TEST = [addr.strip() for addr in os.getenv("NOTIFY_CC_TEST", "").split(",") if addr.strip()]
 
+# Debug flag
+DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+
 
 # ============================================
 # Helpers
 # ============================================
 
+def debug(msg: str):
+    """Print debug log only if DEBUG enabled"""
+    if DEBUG:
+        print(f"[DEBUG] {msg}")
+
+
 def connect_imap():
     """Establish IMAP connection with SSL or STARTTLS"""
+    debug(f"Connecting to IMAP {IMAP_SERVER}:{IMAP_PORT} secure={IMAP_SECURE}")
     if IMAP_SECURE == "ssl":
         mail = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
     else:
@@ -58,12 +68,14 @@ def connect_imap():
         if IMAP_SECURE == "starttls":
             mail.starttls()
     mail.login(IMAP_USER, IMAP_PASS)
+    debug("IMAP login successful")
     return mail
 
 
 def move_message(mail, num, folder):
     """Move message to target folder"""
     try:
+        debug(f"Moving message {num} → {folder}")
         mail.copy(num, folder)
         mail.store(num, "+FLAGS", "\\Deleted")
     except Exception as e:
@@ -86,13 +98,18 @@ def process_mailbox():
         problem = IMAP_FOLDER_TESTPROBLEM if IMAP_TEST_MODE else IMAP_FOLDER_PROBLEM
         skipped = IMAP_FOLDER_TESTSKIPPED if IMAP_TEST_MODE else IMAP_FOLDER_SKIPPED
 
+        debug(f"Selecting folder: {inbox}")
         mail.select(inbox)
+
         result, data = mail.search(None, "ALL")
         if result != "OK":
             print("No messages found!")
             return
 
+        debug(f"Found {len(data[0].split())} messages")
+
         for num in data[0].split():
+            debug(f"Fetching message {num.decode()}")
             result, msg_data = mail.fetch(num, "(RFC822)")
             if result != "OK":
                 print("Error fetching message", num)
@@ -105,9 +122,10 @@ def process_mailbox():
             msg_to = msg.get("To", "")
             msg_cc = msg.get("Cc", "")
             subject = msg.get("Subject", "")
-            body = ""
+            debug(f"Processing message: To={msg_to}, Cc={msg_cc}, Subject={subject}")
 
-            # Extract body text
+            # Extract body
+            body = ""
             if msg.is_multipart():
                 for part in msg.walk():
                     if part.get_content_type() == "text/plain":
@@ -124,6 +142,7 @@ def process_mailbox():
 
             # Classify bounce
             status, reason, domain = classify_bounce(msg)
+            debug(f"Classification: status={status}, reason={reason}, domain={domain}")
 
             # Save to DB
             insert_bounce(msg_to, msg_cc, status, reason, domain)
@@ -131,8 +150,10 @@ def process_mailbox():
             # Determine notification recipients
             if IMAP_TEST_MODE:
                 notify_emails = NOTIFY_CC_TEST
+                debug(f"Test mode: notifying {notify_emails}")
             else:
                 notify_emails = [*NOTIFY_CC, *(msg_cc.split(",") if msg_cc else [])]
+                debug(f"Normal mode: notifying {notify_emails}")
 
             # Send notification
             if notify_emails:
@@ -148,6 +169,7 @@ def process_mailbox():
 
         mail.expunge()
         mail.logout()
+        debug("Mailbox processing complete")
 
     except Exception as e:
         print("Error processing mailbox:", str(e))
@@ -159,6 +181,7 @@ def process_mailbox():
 
 def send_notification(subject, to_addr, cc_addr, status, reason, notify_emails):
     """Send bounce notification email via SMTP relay"""
+    debug(f"Sending notification to {notify_emails}")
     msg = MIMEText(
         f"Bounce detected\n\nTo: {to_addr}\nCc: {cc_addr}\nStatus: {status}\nReason: {reason}"
     )
@@ -182,4 +205,6 @@ def send_notification(subject, to_addr, cc_addr, status, reason, notify_emails):
 # ============================================
 
 if __name__ == "__main__":
+    # Force debug mode on manual run
+    DEBUG = True
     process_mailbox()

@@ -1,44 +1,66 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <title>{{ task_name }} - Live Logs</title>
-  <link rel="stylesheet" href="/static/style.css">
-  <style>
-    body { font-family: monospace; background: #111; color: #eee; margin: 0; }
-    header { background: #222; padding: 10px; }
-    header a { color: #fff; margin-right: 15px; text-decoration: none; }
-    #log {
-      background: #000;
-      padding: 10px;
-      margin: 0;
-      height: 85vh;
-      overflow-y: scroll;
-      white-space: pre-wrap;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <title>{{ task_name }} - Live Logs</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .log-panel {
+            border: 1px solid #ccc;
+            background: #111;
+            color: #0f0;
+            padding: 10px;
+            height: 500px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 13px;
+        }
+        .task-buttons {
+            margin: 1em 0;
+        }
+    </style>
 </head>
 <body>
-  <header>
-    <a href="/">🏠 Home</a>
-    <a href="/run_bounce_check">📨 Run Bounce Check</a>
-    <a href="/run_retry_queue">🔁 Run Retry Queue</a>
-    <a href="/logout">🚪 Logout</a>
-  </header>
-  <h2 style="padding:10px;">{{ task_name }} - Live Logs</h2>
-  <pre id="log"></pre>
+    <h1>{{ task_name }} - Live Log Output</h1>
 
-  <script>
-    const log = document.getElementById("log");
-    const eventSource = new EventSource("{{ stream_url }}");
-    eventSource.onmessage = function(event) {
-      log.textContent += event.data + "\\n";
-      log.scrollTop = log.scrollHeight;
-    };
-    eventSource.onerror = function() {
-      log.textContent += "\\n[Stream closed]\\n";
-      eventSource.close();
-    };
-  </script>
+    <div class="task-buttons">
+        <button onclick="stopTask()">⏸ Stop Task</button>
+        <button onclick="clearLog()">🧹 Clear Log</button>
+    </div>
+
+    <div id="logPanel" class="log-panel"></div>
+
+    <p>
+        <a href="/">🏠 Back to Dashboard</a> |
+        <a href="/logout">Logout</a>
+    </p>
+
+    <script>
+        let eventSource = new EventSource("{{ stream_url }}");
+
+        eventSource.onmessage = function(event) {
+            const panel = document.getElementById('logPanel');
+            panel.textContent += event.data + "\n";
+            panel.scrollTop = panel.scrollHeight;
+        };
+
+        eventSource.onerror = function() {
+            stopTask();
+        };
+
+        function stopTask() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+                const panel = document.getElementById('logPanel');
+                panel.textContent += "\n--- Task stopped ---\n";
+                panel.scrollTop = panel.scrollHeight;
+            }
+        }
+
+        function clearLog() {
+            document.getElementById('logPanel').textContent = '';
+        }
+    </script>
 </body>
 </html>
