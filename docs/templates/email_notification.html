@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: Arial, sans-serif; color: #333; }
+    .header { background: #0072CE; color: white; padding: 10px; }
+    .reason { color: #DA291C; font-weight: bold; }
+    .footer { margin-top: 20px; font-size: 12px; color: #777; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    {% if org_logo_url %}
+      <img src="{{ org_logo_url }}" alt="{{ org_name }}" height="40">
+    {% endif %}
+    <h2>{{ org_name }}</h2>
+  </div>
+
+  <p>Hi,</p>
+
+  <p>{{ org_name }} attempted to send an email to <strong>{{ bounced_email }}</strong>.</p>
+
+  <p>The email address might be misspelled, invalid, or is rejecting delivery.
+  Please update {{ org_name }} before resending.</p>
+
+  <p class="reason">
+    Reason: {{ smtp_status }} - {{ smtp_reason }}<br>
+    Details: {{ smtp_description }}
+  </p>
+
+  <div class="footer">
+    <p>Thank you,<br>
+    {{ org_name }} (<a href="mailto:{{ org_email }}">{{ org_email }}</a>)</p>
+  </div>
+</body>
+</html>

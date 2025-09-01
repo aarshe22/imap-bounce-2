@@ -1,0 +1,12 @@
+Hi,
+
+{{ org_name }} attempted to send an email to {{ bounced_email }}.
+
+The email address might be misspelled, invalid, or is rejecting delivery.
+Please update {{ org_name }} before resending.
+
+Reason: {{ smtp_status }} - {{ smtp_reason }}
+Details: {{ smtp_description }}
+
+Thank you,
+{{ org_name }} ({{ org_email }})
